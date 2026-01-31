@@ -6,7 +6,7 @@ export default function VisualizationControls() {
         useAppContext();
 
     return (
-        <div className="mx-auto mb-4 flex max-w-5xl gap-4">
+        <div className="mx-auto mb-4 flex flex-wrap max-w-5xl gap-4">
             <label className="flex items-center gap-2 text-sm text-gray-300">
                 <input type="checkbox" checked={doublePlot} onChange={e => setDoublePlot(e.target.checked)} className="rounded" />
                 Double plot (48h)
