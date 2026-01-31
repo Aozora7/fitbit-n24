@@ -72,32 +72,16 @@ Supported import formats:
 
 ```
 src/
-  main.tsx                    Entry point (wraps App in AuthProvider)
-  App.tsx                     Root component: toolbar, controls, actogram, legend
-  index.css                   Tailwind directives + global styles
+  main.tsx              Entry point, provider hierarchy
+  App.tsx               Layout shell (no logic)
+  AppContext.tsx         Global state, derived values, context provider
+  index.css             Tailwind directives + global styles
 
-  api/
-    types.ts                  Fitbit API v1 + v1.2 types, unified SleepRecord type
-    fitbit.ts                 Typed fetch wrapper with Bearer token auth
-    sleepApi.ts               Paginated v1.2 sleep list fetching with progressive callback
-
-  auth/
-    oauth.ts                  PKCE helpers: verifier generation, challenge, token exchange
-    AuthProvider.tsx           React context provider for auth state
-    useAuth.ts                Consumer hook for auth context
-
-  data/
-    loadLocalData.ts          Multi-format JSON parser (v1, v1.2, exported internal format)
-    useSleepData.ts           React hook: records state, import, append, set
-
-  models/
-    actogramData.ts           Transforms SleepRecord[] into ActogramRow[] (one row per day)
-    circadian.ts              Quality scoring, tiered anchors, sliding-window WLS, confidence
-
-  components/
-    Actogram/
-      Actogram.tsx            React component: canvas + tooltip overlay
-      useActogramRenderer.ts  Canvas drawing: grid, stages, circadian overlay, tooltips
+  api/                  Fitbit API types, fetch wrapper, paginated sleep list
+  auth/                 OAuth 2.0 PKCE flow, auth context provider
+  data/                 Multi-format JSON parsing, data fetching hook
+  models/               Actogram row transform, circadian estimation algorithm
+  components/           UI components (header, toolbar, controls, actogram, legend, slider)
 ```
 
 ## Known issues and limitations

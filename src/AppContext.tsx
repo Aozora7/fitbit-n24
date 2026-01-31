@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useMemo, useCallback, useRef, type ReactNode } from "react";
+import { createContext, useContext, useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useAuth } from "./auth/useAuth";
 import { useFitbitData, type FitbitDataState } from "./data/useFitbitData";
 import { analyzeCircadian, type CircadianAnalysis } from "./models/circadian";
@@ -62,6 +62,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [rowHeight, setRowHeight] = useState(5);
     const [showCircadian, setShowCircadian] = useState(true);
     const [colorMode, setColorMode] = useState<ColorMode>("stages");
+
+    // Auto-fetch after OAuth login (token appears and no data loaded yet)
+    const autoFetchedRef = useRef(false);
+    useEffect(() => {
+        if (auth.token && data.records.length === 0 && !data.fetching && !autoFetchedRef.current) {
+            autoFetchedRef.current = true;
+            data.startFetch(auth.token);
+        }
+    }, [auth.token, data.records.length, data.fetching, data.startFetch]);
 
     // Date range filter state
     const [filterStart, setFilterStart] = useState(0);
