@@ -8,10 +8,12 @@ import type { FitbitSleepPageV12, RawSleepRecordV12 } from "./types";
  *
  * @param token - OAuth access token
  * @param onPageData - Callback with each page's records and running total
+ * @param signal - Optional AbortSignal to cancel fetching (already-fetched data is kept)
  */
 export async function fetchAllSleepRecords(
   token: string,
   onPageData?: (pageRecords: RawSleepRecordV12[], totalSoFar: number, page: number) => void,
+  signal?: AbortSignal,
 ): Promise<RawSleepRecordV12[]> {
   const allRecords: RawSleepRecordV12[] = [];
   let page = 0;
@@ -22,7 +24,9 @@ export async function fetchAllSleepRecords(
   let nextPath = `/1.2/user/-/sleep/list.json?beforeDate=${tomorrow.toISOString().slice(0, 10)}&sort=desc&offset=0&limit=100`;
 
   while (nextPath) {
-    const data = await fitbitFetch<FitbitSleepPageV12>(nextPath, token);
+    if (signal?.aborted) break;
+
+    const data = await fitbitFetch<FitbitSleepPageV12>(nextPath, token, signal);
     page++;
 
     if (data.sleep && data.sleep.length > 0) {

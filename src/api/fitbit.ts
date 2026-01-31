@@ -17,12 +17,14 @@ export class FitbitApiError extends Error {
 export async function fitbitFetch<T>(
   path: string,
   token: string,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
     mode: "cors",
+    signal,
   });
 
   if (!response.ok) {

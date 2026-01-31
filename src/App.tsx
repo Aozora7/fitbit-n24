@@ -6,6 +6,11 @@ import { fetchAllSleepRecords } from "./api/sleepApi";
 import type { RawSleepRecordV12 } from "./api/types";
 import Actogram from "./components/Actogram/Actogram";
 
+/** Max canvas height in pixels (conservative cross-browser limit) */
+const MAX_CANVAS_HEIGHT = 32_768;
+/** Fixed margins in the actogram renderer (top + bottom) */
+const ACTOGRAM_MARGINS = 50;
+
 export default function App() {
   const { records, loading, error, setRecords, appendRecords, importFromFile } =
     useSleepData();
@@ -20,35 +25,69 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Keep raw API records for export
   const rawRecordsRef = useRef<RawSleepRecordV12[]>([]);
+  // AbortController for cancelling fetch
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   const circadianAnalysis = useMemo(
     () => analyzeCircadian(records),
     [records],
   );
 
+  // Compute the number of calendar days spanned by the data (for row height limit)
+  const daySpan = useMemo(() => {
+    if (records.length === 0) return 0;
+    const first = records[0]!.startTime.getTime();
+    const last = records[records.length - 1]!.endTime.getTime();
+    return Math.ceil((last - first) / 86_400_000) + 1;
+  }, [records]);
+
+  // Max row height that won't overflow the canvas
+  const maxRowHeight = useMemo(() => {
+    if (daySpan === 0) return 32;
+    return Math.min(32, Math.floor((MAX_CANVAS_HEIGHT - ACTOGRAM_MARGINS) / daySpan));
+  }, [daySpan]);
+
+  // Clamp rowHeight if it exceeds the new max (e.g., after loading more data)
+  const effectiveRowHeight = Math.min(rowHeight, maxRowHeight);
+
   // Fetch all data from Fitbit API (progressive: renders after each page)
   const handleFetch = useCallback(async () => {
     if (!token) return;
+    const abortController = new AbortController();
+    fetchAbortRef.current = abortController;
     setFetching(true);
     setFetchProgress("Starting...");
     rawRecordsRef.current = [];
     setRecords([]);
     try {
-      await fetchAllSleepRecords(token, (pageRecords, totalSoFar, page) => {
-        rawRecordsRef.current.push(...pageRecords);
-        const parsed = parseApiRecords(pageRecords);
-        appendRecords(parsed);
-        setFetchProgress(`Page ${page}: ${totalSoFar} records...`);
-      });
+      await fetchAllSleepRecords(
+        token,
+        (pageRecords, totalSoFar, page) => {
+          rawRecordsRef.current.push(...pageRecords);
+          const parsed = parseApiRecords(pageRecords);
+          appendRecords(parsed);
+          setFetchProgress(`Page ${page}: ${totalSoFar} records...`);
+        },
+        abortController.signal,
+      );
       setFetchProgress(`Done: ${rawRecordsRef.current.length} records loaded`);
     } catch (err: unknown) {
-      setFetchProgress(
-        `Error: ${err instanceof Error ? err.message : "Fetch failed"}`,
-      );
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setFetchProgress(`Stopped: ${rawRecordsRef.current.length} records kept`);
+      } else {
+        setFetchProgress(
+          `Error: ${err instanceof Error ? err.message : "Fetch failed"}`,
+        );
+      }
     } finally {
       setFetching(false);
+      fetchAbortRef.current = null;
     }
   }, [token, setRecords, appendRecords]);
+
+  const handleStopFetch = useCallback(() => {
+    fetchAbortRef.current?.abort();
+  }, []);
 
   // Export raw API data as JSON (round-trips cleanly with import)
   const handleExport = useCallback(() => {
@@ -130,11 +169,14 @@ export default function App() {
             {token ? (
               <>
                 <button
-                  onClick={handleFetch}
-                  disabled={fetching}
-                  className="rounded bg-green-700 px-3 py-1.5 text-sm text-white hover:bg-green-600 disabled:opacity-50"
+                  onClick={fetching ? handleStopFetch : handleFetch}
+                  className={`rounded px-3 py-1.5 text-sm text-white ${
+                    fetching
+                      ? "bg-red-700 hover:bg-red-600"
+                      : "bg-green-700 hover:bg-green-600"
+                  }`}
                 >
-                  {fetching ? "Fetching..." : "Fetch from Fitbit"}
+                  {fetching ? "Stop" : "Fetch from Fitbit"}
                 </button>
                 <button
                   onClick={signOut}
@@ -182,93 +224,97 @@ export default function App() {
         )}
       </div>
 
-      {/* Visualization controls */}
-      <div className="mx-auto mb-4 flex max-w-5xl gap-4">
-        <label className="flex items-center gap-2 text-sm text-gray-300">
-          <input
-            type="checkbox"
-            checked={doublePlot}
-            onChange={(e) => setDoublePlot(e.target.checked)}
-            className="rounded"
-          />
-          Double plot (48h)
-        </label>
-        <label className="flex items-center gap-2 text-sm text-gray-300">
-          <input
-            type="checkbox"
-            checked={showCircadian}
-            onChange={(e) => setShowCircadian(e.target.checked)}
-            className="rounded"
-          />
-          Show circadian overlay
-        </label>
-        <label className="flex items-center gap-2 text-sm text-gray-300">
-          Row height:
-          <input
-            type="range"
-            min={2}
-            max={16}
-            value={rowHeight}
-            onChange={(e) => setRowHeight(Number(e.target.value))}
-            className="w-24"
-          />
-          <span className="font-mono text-xs">{rowHeight}px</span>
-        </label>
-      </div>
+      {records.length > 0 && (
+        <>
+          {/* Visualization controls */}
+          <div className="mx-auto mb-4 flex max-w-5xl gap-4">
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input
+                type="checkbox"
+                checked={doublePlot}
+                onChange={(e) => setDoublePlot(e.target.checked)}
+                className="rounded"
+              />
+              Double plot (48h)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input
+                type="checkbox"
+                checked={showCircadian}
+                onChange={(e) => setShowCircadian(e.target.checked)}
+                className="rounded"
+              />
+              Show circadian overlay
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              Row height:
+              <input
+                type="range"
+                min={2}
+                max={maxRowHeight}
+                value={effectiveRowHeight}
+                onChange={(e) => setRowHeight(Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="font-mono text-xs">{effectiveRowHeight}px</span>
+            </label>
+          </div>
 
-      {/* Actogram */}
-      <div className="mx-auto max-w-5xl">
-        <Actogram
-          records={records}
-          circadian={showCircadian ? circadianAnalysis.days : []}
-          doublePlot={doublePlot}
-          rowHeight={rowHeight}
-        />
-      </div>
+          {/* Actogram */}
+          <div className="mx-auto max-w-5xl">
+            <Actogram
+              records={records}
+              circadian={showCircadian ? circadianAnalysis.days : []}
+              doublePlot={doublePlot}
+              rowHeight={effectiveRowHeight}
+            />
+          </div>
 
-      {/* Legend */}
-      <div className="mx-auto mt-4 flex max-w-5xl flex-wrap gap-6 text-xs text-gray-400">
-        {/* Show stage colors if any records have stages */}
-        {records.some((r) => r.stageData) ? (
-          <>
+          {/* Legend */}
+          <div className="mx-auto mt-4 flex max-w-5xl flex-wrap gap-6 text-xs text-gray-400">
+            {/* Show stage colors if any records have stages */}
+            {records.some((r) => r.stageData) ? (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#1e40af" }} />
+                  Deep
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#60a5fa" }} />
+                  Light
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#06b6d4" }} />
+                  REM
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm bg-red-500" />
+                  Wake
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm bg-blue-500" />
+                  Asleep
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm bg-yellow-500" />
+                  Restless
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm bg-red-500" />
+                  Awake
+                </div>
+              </>
+            )}
             <div className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#1e40af" }} />
-              Deep
+              <span className="inline-block h-3 w-3 rounded-sm bg-purple-500/25" />
+              Estimated circadian night
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#60a5fa" }} />
-              Light
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#06b6d4" }} />
-              REM
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm bg-red-500" />
-              Wake
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm bg-blue-500" />
-              Asleep
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm bg-yellow-500" />
-              Restless
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm bg-red-500" />
-              Awake
-            </div>
-          </>
-        )}
-        <div className="flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-purple-500/25" />
-          Estimated circadian night
-        </div>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
