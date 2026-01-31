@@ -5,6 +5,7 @@ import { analyzeCircadian } from "./models/circadian";
 import { fetchAllSleepRecords } from "./api/sleepApi";
 import type { RawSleepRecordV12 } from "./api/types";
 import Actogram from "./components/Actogram/Actogram";
+import DateRangeSlider from "./components/DateRangeSlider";
 import type { ColorMode } from "./components/Actogram/useActogramRenderer";
 
 /** Max canvas height in pixels (conservative cross-browser limit) */
@@ -31,30 +32,89 @@ export default function App() {
   // AbortController for cancelling fetch
   const fetchAbortRef = useRef<AbortController | null>(null);
 
-  // If data ends today or yesterday, forecast one extra day so the user can see
-  // their next optimal sleep time via the circadian overlay.
-  const forecastDays = useMemo(() => {
-    if (records.length === 0) return 0;
-    const lastEnd = records[records.length - 1]!.endTime;
-    const now = new Date();
-    const diffMs = now.getTime() - lastEnd.getTime();
-    const diffDays = diffMs / 86_400_000;
-    // Data ends within roughly the last 2 days
-    return diffDays < 2 ? 1 : 0;
-  }, [records]);
+  // Date range filter state (day indices into the full dataset span)
+  const [filterStart, setFilterStart] = useState(0);
+  const [filterEnd, setFilterEnd] = useState(0);
 
-  const circadianAnalysis = useMemo(
-    () => analyzeCircadian(records, forecastDays),
-    [records, forecastDays],
-  );
-
-  // Compute the number of calendar days spanned by the data (for row height limit)
-  const daySpan = useMemo(() => {
+  // Total number of calendar days in the full (unfiltered) dataset
+  const totalDays = useMemo(() => {
     if (records.length === 0) return 0;
     const first = records[0]!.startTime.getTime();
     const last = records[records.length - 1]!.endTime.getTime();
     return Math.ceil((last - first) / 86_400_000) + 1;
   }, [records]);
+
+  // First date string for slider labels
+  const firstDateStr = useMemo(() => {
+    if (records.length === 0) return "";
+    const d = records[0]!.startTime;
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }, [records]);
+
+  // Keep filter end in sync with totalDays (grows during progressive fetch,
+  // resets on new dataset). filterEnd of 0 means "not initialized yet".
+  const prevTotalDaysRef = useRef(0);
+  if (totalDays !== prevTotalDaysRef.current) {
+    const wasFullRange =
+      prevTotalDaysRef.current === 0 ||
+      (filterStart === 0 && filterEnd >= prevTotalDaysRef.current);
+    prevTotalDaysRef.current = totalDays;
+    if (wasFullRange) {
+      setFilterStart(0);
+      setFilterEnd(totalDays);
+    }
+  }
+
+  // Filter records by date range
+  const filteredRecords = useMemo(() => {
+    if (records.length === 0 || totalDays === 0) return records;
+    if (filterStart === 0 && filterEnd >= totalDays) return records;
+
+    const baseMs = records[0]!.startTime.getTime();
+    const base = new Date(baseMs);
+    base.setHours(0, 0, 0, 0);
+    const baseDay = base.getTime();
+
+    const rangeStartMs = baseDay + filterStart * 86_400_000;
+    const rangeEndMs = baseDay + filterEnd * 86_400_000;
+
+    return records.filter((r) => {
+      const endMs = r.endTime.getTime();
+      const startMs = r.startTime.getTime();
+      // Record overlaps the filter range
+      return endMs > rangeStartMs && startMs < rangeEndMs;
+    });
+  }, [records, filterStart, filterEnd, totalDays]);
+
+  const handleFilterChange = useCallback((start: number, end: number) => {
+    setFilterStart(start);
+    setFilterEnd(end);
+  }, []);
+
+  // If data ends today or yesterday, forecast one extra day so the user can see
+  // their next optimal sleep time via the circadian overlay.
+  const forecastDays = useMemo(() => {
+    if (filteredRecords.length === 0) return 0;
+    const lastEnd = filteredRecords[filteredRecords.length - 1]!.endTime;
+    const now = new Date();
+    const diffMs = now.getTime() - lastEnd.getTime();
+    const diffDays = diffMs / 86_400_000;
+    // Data ends within roughly the last 2 days
+    return diffDays < 2 ? 1 : 0;
+  }, [filteredRecords]);
+
+  const circadianAnalysis = useMemo(
+    () => analyzeCircadian(filteredRecords, forecastDays),
+    [filteredRecords, forecastDays],
+  );
+
+  // Compute the number of calendar days spanned by filtered data (for row height limit)
+  const daySpan = useMemo(() => {
+    if (filteredRecords.length === 0) return 0;
+    const first = filteredRecords[0]!.startTime.getTime();
+    const last = filteredRecords[filteredRecords.length - 1]!.endTime.getTime();
+    return Math.ceil((last - first) / 86_400_000) + 1;
+  }, [filteredRecords]);
 
   // Max row height that won't overflow the canvas
   const maxRowHeight = useMemo(() => {
@@ -72,10 +132,10 @@ export default function App() {
   }, [circadianAnalysis.globalDailyDrift, daySpan]);
 
   const avgSleepPerDay = useMemo(() => {
-    if (records.length === 0 || daySpan === 0) return 0;
-    const totalHours = records.reduce((sum, r) => sum + r.durationHours, 0);
+    if (filteredRecords.length === 0 || daySpan === 0) return 0;
+    const totalHours = filteredRecords.reduce((sum, r) => sum + r.durationHours, 0);
     return totalHours / daySpan;
-  }, [records, daySpan]);
+  }, [filteredRecords, daySpan]);
 
   // Fetch all data from Fitbit API (progressive: renders after each page)
   const handleFetch = useCallback(async () => {
@@ -183,7 +243,9 @@ export default function App() {
           </button>
         </div>
         <p className="mt-1 text-sm text-gray-400">
-          {records.length} sleep records
+          {filteredRecords.length === records.length
+            ? `${records.length} sleep records`
+            : `${filteredRecords.length} of ${records.length} sleep records (filtered)`}
           {circadianAnalysis.globalTau !== 24 && (
             <>
               {" "}&middot; Estimated period:{" "}
@@ -340,8 +402,18 @@ export default function App() {
 
           {/* Actogram */}
           <div className="mx-auto max-w-5xl">
+            <DateRangeSlider
+              totalDays={totalDays}
+              startDay={filterStart}
+              endDay={filterEnd || totalDays}
+              onChange={handleFilterChange}
+              leftMargin={80}
+              rightMargin={16}
+              firstDate={firstDateStr}
+              disabled={fetching}
+            />
             <Actogram
-              records={records}
+              records={filteredRecords}
               circadian={showCircadian ? circadianAnalysis.days : []}
               doublePlot={doublePlot}
               rowHeight={effectiveRowHeight}
@@ -367,7 +439,7 @@ export default function App() {
                   Good
                 </div>
               </>
-            ) : records.some((r) => r.stageData) ? (
+            ) : filteredRecords.some((r) => r.stageData) ? (
               <>
                 <div className="flex items-center gap-1.5">
                   <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#1e40af" }} />

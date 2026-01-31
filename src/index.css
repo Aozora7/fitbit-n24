@@ -6,3 +6,36 @@ body {
   color: #e2e8f0;
   font-family: system-ui, -apple-system, sans-serif;
 }
+
+/* Dual-thumb range slider styling */
+.range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #60a5fa;
+  border: 2px solid #1e293b;
+  cursor: pointer;
+  position: relative;
+}
+
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #60a5fa;
+  border: 2px solid #1e293b;
+  cursor: pointer;
+}
+
+.range-thumb:disabled::-webkit-slider-thumb {
+  background: #475569;
+  cursor: not-allowed;
+}
+
+.range-thumb:disabled::-moz-range-thumb {
+  background: #475569;
+  cursor: not-allowed;
+}
