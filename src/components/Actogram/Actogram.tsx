@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { useActogramRenderer } from "./useActogramRenderer";
+import type { ColorMode } from "./useActogramRenderer";
 import { buildActogramRows } from "../../models/actogramData";
 import type { SleepRecord } from "../../api/types";
 import type { CircadianDay } from "../../models/circadian";
@@ -9,6 +10,8 @@ interface ActogramProps {
   circadian: CircadianDay[];
   doublePlot: boolean;
   rowHeight: number;
+  colorMode: ColorMode;
+  forecastDays?: number;
 }
 
 export default function Actogram({
@@ -16,11 +19,17 @@ export default function Actogram({
   circadian,
   doublePlot,
   rowHeight,
+  colorMode,
+  forecastDays = 0,
 }: ActogramProps) {
-  const rows = useMemo(() => buildActogramRows(records), [records]);
+  const rows = useMemo(
+    () => buildActogramRows(records, forecastDays),
+    [records, forecastDays],
+  );
   const { canvasRef, getTooltipInfo } = useActogramRenderer(rows, circadian, {
     doublePlot,
     rowHeight,
+    colorMode,
   });
 
   const [tooltip, setTooltip] = useState<{

@@ -5,6 +5,7 @@ import { analyzeCircadian } from "./models/circadian";
 import { fetchAllSleepRecords } from "./api/sleepApi";
 import type { RawSleepRecordV12 } from "./api/types";
 import Actogram from "./components/Actogram/Actogram";
+import type { ColorMode } from "./components/Actogram/useActogramRenderer";
 
 /** Max canvas height in pixels (conservative cross-browser limit) */
 const MAX_CANVAS_HEIGHT = 32_768;
@@ -23,15 +24,28 @@ export default function App() {
   const [fetching, setFetching] = useState(false);
   const [fetchProgress, setFetchProgress] = useState("");
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [colorMode, setColorMode] = useState<ColorMode>("stages");
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Keep raw API records for export
   const rawRecordsRef = useRef<RawSleepRecordV12[]>([]);
   // AbortController for cancelling fetch
   const fetchAbortRef = useRef<AbortController | null>(null);
 
+  // If data ends today or yesterday, forecast one extra day so the user can see
+  // their next optimal sleep time via the circadian overlay.
+  const forecastDays = useMemo(() => {
+    if (records.length === 0) return 0;
+    const lastEnd = records[records.length - 1]!.endTime;
+    const now = new Date();
+    const diffMs = now.getTime() - lastEnd.getTime();
+    const diffDays = diffMs / 86_400_000;
+    // Data ends within roughly the last 2 days
+    return diffDays < 2 ? 1 : 0;
+  }, [records]);
+
   const circadianAnalysis = useMemo(
-    () => analyzeCircadian(records),
-    [records],
+    () => analyzeCircadian(records, forecastDays),
+    [records, forecastDays],
   );
 
   // Compute the number of calendar days spanned by the data (for row height limit)
@@ -300,6 +314,17 @@ export default function App() {
               Show circadian overlay
             </label>
             <label className="flex items-center gap-2 text-sm text-gray-300">
+              Color:
+              <select
+                value={colorMode}
+                onChange={(e) => setColorMode(e.target.value as ColorMode)}
+                className="rounded bg-gray-700 px-2 py-0.5 text-sm text-gray-300"
+              >
+                <option value="stages">Sleep stages</option>
+                <option value="quality">Quality (red→green)</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
               Row height:
               <input
                 type="range"
@@ -320,13 +345,29 @@ export default function App() {
               circadian={showCircadian ? circadianAnalysis.days : []}
               doublePlot={doublePlot}
               rowHeight={effectiveRowHeight}
+              colorMode={colorMode}
+              forecastDays={forecastDays}
             />
           </div>
 
           {/* Legend */}
           <div className="mx-auto mt-4 flex max-w-5xl flex-wrap gap-6 text-xs text-gray-400">
-            {/* Show stage colors if any records have stages */}
-            {records.some((r) => r.stageData) ? (
+            {colorMode === "quality" ? (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "hsl(0, 75%, 45%)" }} />
+                  Poor
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "hsl(60, 75%, 45%)" }} />
+                  Fair
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "hsl(120, 75%, 45%)" }} />
+                  Good
+                </div>
+              </>
+            ) : records.some((r) => r.stageData) ? (
               <>
                 <div className="flex items-center gap-1.5">
                   <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "#1e40af" }} />

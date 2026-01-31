@@ -226,7 +226,10 @@ function evaluateWindow(
 
 // ─── Main analysis function ────────────────────────────────────────
 
-export function analyzeCircadian(records: SleepRecord[]): CircadianAnalysis {
+/**
+ * @param extraDays - Number of days to forecast beyond the data range (for circadian overlay prediction)
+ */
+export function analyzeCircadian(records: SleepRecord[], extraDays = 0): CircadianAnalysis {
   const empty: CircadianAnalysis = {
     globalTau: 24,
     globalDailyDrift: 0,
@@ -346,10 +349,16 @@ export function analyzeCircadian(records: SleepRecord[]): CircadianAnalysis {
   let tauWSum = 0;
   const allResiduals: number[] = [];
 
-  for (let d = 0; d <= lastDay; d++) {
-    const dateStr = new Date(firstDateMs + d * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
+  const totalDays = lastDay + extraDays;
+
+  for (let d = 0; d <= totalDays; d++) {
+    const dayDate = new Date(firstDateMs + d * 86_400_000);
+    const dateStr =
+      dayDate.getFullYear() +
+      "-" +
+      String(dayDate.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(dayDate.getDate()).padStart(2, "0");
 
     let result = evaluateWindow(anchors, d, WINDOW_HALF);
     if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {

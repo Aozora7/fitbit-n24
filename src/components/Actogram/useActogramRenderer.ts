@@ -2,11 +2,14 @@ import { useEffect, useRef, useCallback } from "react";
 import { scaleLinear } from "d3-scale";
 import type { ActogramRow } from "../../models/actogramData";
 import type { CircadianDay } from "../../models/circadian";
-import type { SleepLevelEntry } from "../../api/types";
+import type { SleepLevelEntry, SleepRecord } from "../../api/types";
+
+export type ColorMode = "stages" | "quality";
 
 export interface ActogramConfig {
   doublePlot: boolean;
   rowHeight: number;
+  colorMode: ColorMode;
   leftMargin: number;
   topMargin: number;
   rightMargin: number;
@@ -16,6 +19,7 @@ export interface ActogramConfig {
 const DEFAULT_CONFIG: ActogramConfig = {
   doublePlot: false,
   rowHeight: 5,
+  colorMode: "stages",
   leftMargin: 80,
   topMargin: 30,
   rightMargin: 16,
@@ -68,6 +72,32 @@ function stageColor(level: string): string {
   }
 }
 
+/**
+ * Compute a 0–1 quality score for a sleep record.
+ * Same formula used in circadian.ts for anchor weighting.
+ */
+function qualityScore(record: SleepRecord): number {
+  if (record.stages) {
+    const { deep, light, rem, wake } = record.stages;
+    const sleepMinutes = deep + light + rem;
+    if (sleepMinutes === 0) return 0;
+    const remPercent = (rem / sleepMinutes) * 100;
+    const remScore = Math.min(1, remPercent / 25);
+    const deepScore = Math.min(1, deep / 60);
+    const wakeScore = 1 - Math.min(1, wake / 60);
+    return 0.5 * remScore + 0.25 * deepScore + 0.25 * wakeScore;
+  }
+  return (record.efficiency / 100) * 0.7;
+}
+
+/** Map quality score (0–1) to a red→yellow→green gradient color */
+function qualityColor(score: number): string {
+  const s = Math.max(0, Math.min(1, score));
+  // 0 → red (0°), 0.5 → yellow (60°), 1.0 → green (120°)
+  const hue = s * 120;
+  return `hsl(${hue}, 75%, 45%)`;
+}
+
 export function useActogramRenderer(
   rows: ActogramRow[],
   circadian: CircadianDay[],
@@ -118,6 +148,7 @@ export function useActogramRenderer(
             const s = block.record.stages;
             info.stages = `D:${s.deep} L:${s.light} R:${s.rem} W:${s.wake}min`;
           }
+          info.quality = (qualityScore(block.record) * 100).toFixed(0) + "%";
           return info;
         }
       }
@@ -243,7 +274,16 @@ export function useActogramRenderer(
           const bEnd = block.endHour + hourOffset;
           const blockPixelWidth = xScale(bEnd) - xScale(bStart);
 
-          if (block.record.stageData && blockPixelWidth > 5) {
+          if (cfg.colorMode === "quality") {
+            // Quality mode: solid color based on quality score
+            ctx.fillStyle = qualityColor(qualityScore(block.record));
+            ctx.fillRect(
+              xScale(bStart),
+              y,
+              Math.max(blockPixelWidth, 1),
+              cfg.rowHeight - 0.5,
+            );
+          } else if (block.record.stageData && blockPixelWidth > 5) {
             // v1.2: render per-interval stage coloring
             drawStageBlock(
               ctx,

@@ -2,6 +2,8 @@
 
 A client-side React application that visualizes Fitbit sleep data for people with non-24-hour sleep-wake disorder (N24). It renders sleep records as an actogram — a raster plot where each row is one calendar day — making the characteristic circadian drift pattern immediately visible. It estimates the user's circadian period using quality-weighted sliding-window regression and overlays the predicted circadian night with confidence-based transparency.
 
+In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/fitbit-sleep-vis) but is implemented completely independently.
+
 ## Features
 
 - **Actogram visualization**: Canvas-based raster plot with one row per calendar day, newest first
@@ -9,7 +11,7 @@ A client-side React application that visualizes Fitbit sleep data for people wit
 - **Variable-rate circadian estimation**: Sliding-window weighted least squares regression that captures how tau changes over time, with quality-scored anchor selection and outlier rejection
 - **Circadian night overlay**: Purple band with confidence-based opacity — more opaque where data is dense, transparent where sparse
 - **OAuth PKCE authentication**: Sign in with Fitbit directly from the browser, no server needed
-- **Progressive data loading**: Actogram renders and updates as each page of API data arrives (~100 records per page)
+- **Progressive data loading**: Actogram renders and updates as each page of API data arrives (100 records per page)
 - **Import/export**: Load data from JSON files or export fetched API data for offline use
 - **Double-plot mode**: 48-hour row width for visualizing patterns that cross midnight
 - **Interactive tooltips**: Hover over any sleep block to see date, times, duration, efficiency, and stage breakdown
@@ -17,14 +19,14 @@ A client-side React application that visualizes Fitbit sleep data for people wit
 
 ## Tech stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| Build | Vite | Fast, zero-config for React + TypeScript |
-| UI | React 19 + TypeScript | Type safety is critical for date/time math |
-| CSS | Tailwind CSS v4 | Utility-first, minimal custom CSS needed |
+| Layer         | Choice                 | Why                                               |
+| ------------- | ---------------------- | ------------------------------------------------- |
+| Build         | Vite                   | Fast, zero-config for React + TypeScript          |
+| UI            | React 19 + TypeScript  | Type safety is critical for date/time math        |
+| CSS           | Tailwind CSS v4        | Utility-first, minimal custom CSS needed          |
 | Visualization | HTML Canvas + d3-scale | Custom actogram rendering; d3-scale for axis math |
-| Auth | OAuth 2.0 PKCE | Secure client-only auth without a backend |
-| State | React Context + hooks | App is small enough to not need Redux/Zustand |
+| Auth          | OAuth 2.0 PKCE         | Secure client-only auth without a backend         |
+| State         | React Context + hooks  | App is small enough to not need Redux/Zustand     |
 
 ## Quick start
 
@@ -40,12 +42,12 @@ Open http://localhost:5173.
 To fetch data directly from the Fitbit API:
 
 1. Register an app at https://dev.fitbit.com/apps/new
-   - OAuth 2.0 Application Type: **Client**
-   - Callback URL: `http://localhost:5173`
+    - OAuth 2.0 Application Type: **Client**
+    - Callback URL: `http://localhost:5173`
 2. Copy `.env.example` to `.env` and fill in your client ID:
-   ```
-   VITE_FITBIT_CLIENT_ID=your_client_id_here
-   ```
+    ```
+    VITE_FITBIT_CLIENT_ID=your_client_id_here
+    ```
 3. Start the dev server and click "Sign in with Fitbit"
 
 ### Data sources
@@ -57,6 +59,7 @@ The app starts empty. You can:
 - **Export JSON**: Save the current dataset as a JSON file that can be re-imported later
 
 Supported import formats:
+
 - Fitbit API v1.2 response: `{ "sleep": [...] }` or array of pages
 - Fitbit API v1 response: array of pages with `minuteData`
 - Previously exported data from this app
@@ -96,17 +99,13 @@ src/
 ## Known issues and limitations
 
 ### Variable circadian period
+
 The sliding-window approach captures gradual changes in tau but cannot detect sudden phase shifts (e.g., from jet lag or medication changes). Change-point detection would help here.
 
 ### Classic-type records
+
 Some older Fitbit records use the "classic" format (asleep/restless/awake) even through the v1.2 API. These records don't have sleep stage data and receive a capped quality score, which means the algorithm treats them as lower-confidence anchors.
 
 ### Circadian overlay width
+
 The overlay uses an 8-hour window centered on the predicted midpoint. Actual sleep durations vary, and the overlay can appear too wide or too narrow for individual days.
-
-## Planned features
-
-- Date range filtering and zoom
-- Chi-squared periodogram as an alternative period estimation method
-- Sleep quality trends and statistics panel
-- Change-point detection for entrainment episodes

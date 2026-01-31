@@ -37,19 +37,22 @@ function localMidnight(d: Date): Date {
  * Build actogram row data from sleep records.
  * Each calendar day in the range gets a row with any overlapping sleep blocks
  * clipped to the [0, 24) hour window of that day.
+ *
+ * @param extraDays - Number of empty forecast days to append after the data range
  */
-export function buildActogramRows(records: SleepRecord[]): ActogramRow[] {
+export function buildActogramRows(records: SleepRecord[], extraDays = 0): ActogramRow[] {
   if (records.length === 0) return [];
 
   // Find date range
   const firstDate = records[0]!.startTime;
   const lastDate = records[records.length - 1]!.endTime;
 
-  // Generate all calendar days in range (using local dates)
+  // Generate all calendar days in range (using local dates), plus forecast days
   const rows: ActogramRow[] = [];
   const current = localMidnight(firstDate);
   const end = new Date(lastDate);
   end.setHours(23, 59, 59, 999);
+  end.setDate(end.getDate() + extraDays);
 
   while (current <= end) {
     rows.push({ date: toLocalDateStr(current), blocks: [] });
