@@ -1,34 +1,21 @@
 import { useState, useCallback, useMemo } from "react";
 import { useActogramRenderer } from "./useActogramRenderer";
-import type { ColorMode } from "./useActogramRenderer";
 import { buildActogramRows } from "../../models/actogramData";
-import type { SleepRecord } from "../../api/types";
-import type { CircadianDay } from "../../models/circadian";
+import { useAppContext } from "../../AppContext";
 
-interface ActogramProps {
-  records: SleepRecord[];
-  circadian: CircadianDay[];
-  doublePlot: boolean;
-  rowHeight: number;
-  colorMode: ColorMode;
-  forecastDays?: number;
-}
+export default function Actogram() {
+  const { filteredRecords, showCircadian, circadianAnalysis, doublePlot, effectiveRowHeight, colorMode, forecastDays } = useAppContext();
 
-export default function Actogram({
-  records,
-  circadian,
-  doublePlot,
-  rowHeight,
-  colorMode,
-  forecastDays = 0,
-}: ActogramProps) {
   const rows = useMemo(
-    () => buildActogramRows(records, forecastDays),
-    [records, forecastDays],
+    () => buildActogramRows(filteredRecords, forecastDays),
+    [filteredRecords, forecastDays],
   );
-  const { canvasRef, getTooltipInfo } = useActogramRenderer(rows, circadian, {
+
+  const circadianDays = showCircadian ? circadianAnalysis.days : [];
+
+  const { canvasRef, getTooltipInfo } = useActogramRenderer(rows, circadianDays, {
     doublePlot,
-    rowHeight,
+    rowHeight: effectiveRowHeight,
     colorMode,
   });
 

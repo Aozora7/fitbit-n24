@@ -1,39 +1,21 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useAppContext } from "../AppContext";
 
-interface DateRangeSliderProps {
-  /** Total number of days in the dataset (0-indexed max) */
-  totalDays: number;
-  /** Current committed start index */
-  startDay: number;
-  /** Current committed end index */
-  endDay: number;
-  /** Called when the user releases a thumb */
-  onChange: (start: number, end: number) => void;
-  /** Left margin in px to align with the actogram plot area */
-  leftMargin: number;
-  /** Right margin in px */
-  rightMargin: number;
-  /** First date string (YYYY-MM-DD) for computing day labels */
-  firstDate: string;
-  /** Whether the slider is disabled (e.g., during fetch) */
-  disabled?: boolean;
-}
+/** Actogram renderer left/right margins (must match useActogramRenderer) */
+const LEFT_MARGIN = 80;
+const RIGHT_MARGIN = 16;
 
 /**
  * Dual-thumb range slider for date filtering.
  * Uses two native range inputs overlaid on each other.
  * Commits values only on pointerup to avoid expensive re-renders.
  */
-export default function DateRangeSlider({
-  totalDays,
-  startDay,
-  endDay,
-  onChange,
-  leftMargin,
-  rightMargin,
-  firstDate,
-  disabled = false,
-}: DateRangeSliderProps) {
+export default function DateRangeSlider() {
+  const { totalDays, filterStart, filterEnd, handleFilterChange, firstDateStr, data } = useAppContext();
+  const disabled = data.fetching;
+  const startDay = filterStart;
+  const endDay = filterEnd || totalDays;
+
   // Local state for dragging (so we can show preview without committing)
   const [localStart, setLocalStart] = useState(startDay);
   const [localEnd, setLocalEnd] = useState(endDay);
@@ -67,14 +49,14 @@ export default function DateRangeSlider({
 
   const commitValues = useCallback(() => {
     draggingRef.current = false;
-    onChange(localStart, localEnd);
-  }, [localStart, localEnd, onChange]);
+    handleFilterChange(localStart, localEnd);
+  }, [localStart, localEnd, handleFilterChange]);
 
   // Compute the date label for a given day index
   const dayLabel = useCallback(
     (dayIdx: number): string => {
-      if (!firstDate) return "";
-      const d = new Date(firstDate + "T00:00:00");
+      if (!firstDateStr) return "";
+      const d = new Date(firstDateStr + "T00:00:00");
       d.setDate(d.getDate() + dayIdx);
       return (
         d.getFullYear() +
@@ -84,7 +66,7 @@ export default function DateRangeSlider({
         String(d.getDate()).padStart(2, "0")
       );
     },
-    [firstDate],
+    [firstDateStr],
   );
 
   if (totalDays <= 1) return null;
@@ -96,7 +78,7 @@ export default function DateRangeSlider({
   const isFiltered = localStart > 0 || localEnd < totalDays;
 
   return (
-    <div className="mt-2" style={{ paddingLeft: leftMargin, paddingRight: rightMargin }}>
+    <div className="mt-2" style={{ paddingLeft: LEFT_MARGIN, paddingRight: RIGHT_MARGIN }}>
       {/* Date labels */}
       <div className="mb-1 flex items-center justify-between text-xs text-gray-400">
         <span className={isFiltered ? "text-blue-400" : ""}>
@@ -107,7 +89,7 @@ export default function DateRangeSlider({
             onClick={() => {
               setLocalStart(0);
               setLocalEnd(totalDays);
-              onChange(0, totalDays);
+              handleFilterChange(0, totalDays);
             }}
             className="text-xs text-gray-500 hover:text-gray-300"
             disabled={disabled}
