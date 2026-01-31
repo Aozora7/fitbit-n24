@@ -1,5 +1,9 @@
 # fitbit-n24
 
+https://n24.aozora.one/
+
+![screenshot_2026_01_31](https://github.com/Aozora7/fitbit-n24/raw/master/images/screenshot_2026_01_31.png)
+
 A client-side React application that visualizes Fitbit sleep data for people with non-24-hour sleep-wake disorder (N24). It renders sleep records as an actogram — a raster plot where each row is one calendar day — making the characteristic circadian drift pattern immediately visible. It estimates the user's circadian period using quality-weighted sliding-window regression and overlays the predicted circadian night with confidence-based transparency.
 
 In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/fitbit-sleep-vis) but is implemented completely independently.
