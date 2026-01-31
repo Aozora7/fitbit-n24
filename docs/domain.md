@@ -65,39 +65,60 @@ Double-plotting is standard practice in circadian research because it eliminates
 ## Estimating the circadian period
 
 ### The problem
-Given noisy sleep data with forced wake times, naps, and gaps, estimate the underlying circadian period (tau) and predict where the circadian night falls on any given day.
+Given noisy sleep data with forced wake times, naps, and gaps, estimate the underlying circadian period (tau) and predict where the circadian night falls on any given day. The period is not constant — it varies with seasons, light exposure, medication, and other factors — so a single global estimate is insufficient.
 
 ### Phase markers
 The sleep midpoint (halfway between sleep onset and wake time) is used as a proxy for the circadian phase. In chronobiology, more precise phase markers include core body temperature minimum (CBTmin) or dim light melatonin onset (DLMO), but these require laboratory measurement. The sleep midpoint is the best available marker from consumer wearable data.
 
-### Anchor selection
-Not all sleep records are equally informative. Short naps and alarm-truncated sleeps have midpoints that don't reflect the true circadian phase. "Anchor" sleeps — long, consolidated sleep episodes — are more likely to represent the circadian night. Selecting only sleeps above a duration threshold (e.g., 4 hours) filters out most uninformative records.
+### Sleep quality as a filter
 
-### Linear regression approach
-If the circadian period is constant, the phase markers should advance linearly over time. Plotting the unwrapped midpoint against day number and fitting a line gives:
-- **Slope** = daily drift = tau - 24 hours
-- **Intercept** = starting phase
-- **R-squared** = how consistent the pattern is
+Not all sleep records are equally informative. When the Fitbit v1.2 API provides sleep stage data, the proportion of REM sleep is the strongest signal for whether sleep was circadian-aligned:
 
-This is the approach currently implemented. It works well when the period is truly constant and the data is not too noisy.
+- **Circadian-aligned sleep** (sleeping during the biological night): ~21% REM on average
+- **Misaligned sleep** (sleeping at the wrong circadian time): ~9% REM on average
 
-### Limitations of linear regression
-- Assumes constant tau across the entire dataset
-- Sensitive to outliers (forced sleeps that pass the duration threshold)
-- Cannot detect period changes, entrainment episodes, or seasonal variation
-- The R-squared value can be misleadingly high even when the model is wrong in specific regions
+This makes REM percentage a much better quality signal than Fitbit's "efficiency" field, which only measures restlessness and does not correlate strongly with circadian alignment. The app computes a composite quality score from REM fraction (50% weight), deep sleep duration (25%), and wake penalty (25%). For older records without stage data, efficiency is used as a fallback but capped at 0.7 to reflect its lower reliability.
 
-### Better approaches (not yet implemented)
+### Tiered anchor selection
 
-**Windowed regression**: Fit the regression over a sliding window (e.g., 30-60 days) to capture period changes over time. Each window produces a local tau estimate. This would show the circadian period curve rather than a single number.
+Records are classified into three tiers based on duration and quality:
+
+- **Tier A** (>= 7h, quality >= 0.5, weight 1.0): High-confidence anchors that almost certainly represent circadian sleep
+- **Tier B** (>= 5h, quality >= 0.3, weight 0.4): Moderate-confidence anchors
+- **Tier C** (>= 4h, quality >= 0.2, weight 0.1): Used only for gap-filling when fewer than 25% of days are covered by A and B anchors
+
+When multiple records exist for the same calendar day, only the highest-quality one is kept. This tiered approach replaces the earlier simple duration threshold (>= 4h), which included too many forced-schedule sleeps.
+
+### Outlier rejection
+
+After initial anchor selection, a global linear regression is fit and records with residuals exceeding 4 hours are removed. This catches forced-schedule sleeps that passed the duration and quality thresholds but have midpoints far from the true circadian phase.
+
+### Sliding-window weighted regression
+
+Rather than fitting a single line to the entire dataset (which assumes constant tau), the app uses a 90-day Gaussian-weighted sliding window stepped daily:
+
+1. For each calendar day, collect all anchors within +/- 45 days
+2. Weight each anchor by a Gaussian (sigma = 30 days) multiplied by its tier weight
+3. Fit weighted least squares: midpoint = slope * dayIndex + intercept
+4. Local tau = 24 + slope
+
+This produces a per-day tau estimate that captures gradual changes in the circadian period over months and years. The circadian overlay follows these local estimates, so the predicted night band curves rather than being a straight diagonal.
+
+A composite confidence score for each day combines anchor density (40%), mean anchor quality (30%), and residual spread (30%). The circadian overlay uses this to modulate opacity — regions with dense, high-quality data are drawn more prominently.
+
+### Current limitations
+
+**Midpoint as phase marker**: Using the midpoint of the sleep record assumes sleep is roughly symmetric around the circadian nadir. In practice, sleep onset and offset relate differently to the underlying circadian phase, and forced wake times can shift the midpoint away from the true circadian center.
+
+**8-hour assumed duration**: The circadian overlay uses a fixed 8-hour window regardless of actual sleep durations.
+
+**No change-point detection**: The sliding window captures gradual tau changes but cannot detect sudden phase shifts from jet lag, medication changes, or entrainment episodes. These appear as brief anomalies in the overlay rather than clean transitions.
+
+### Approaches not yet implemented
 
 **Chi-squared periodogram**: A frequency-domain method from chronobiology that estimates the dominant period in time-series data. More robust to noise than regression because it uses all the data simultaneously rather than just midpoints. Variants include the Lomb-Scargle periodogram (handles uneven sampling) and the Sokolove-Bushell periodogram.
 
-**Change-point detection**: Statistical methods to identify moments where the underlying period shifts (e.g., due to medication, season change, or entrainment attempt). Could be combined with piecewise linear regression.
-
-**Weighted regression**: Weight each anchor point by sleep duration, efficiency, or both. Longer, higher-quality sleeps are more reliable phase markers and should have more influence on the fit.
-
-**RANSAC or robust regression**: Iteratively fit the line while excluding outliers. This would handle forced-schedule sleeps that contaminate the anchor set.
+**Change-point detection**: Statistical methods to identify moments where the underlying period shifts. Could be combined with the sliding-window approach to detect and label entrainment episodes.
 
 **Bayesian estimation**: Model the circadian phase as a latent variable with a prior on tau and uncertainty on each observation. This naturally handles missing data and variable confidence.
 
@@ -117,7 +138,7 @@ drift = 24 * 49 / 1300 = 0.905 hours/day = 54.3 min/day
 tau = 24 + 0.905 = 24.905 hours
 ```
 
-This manual counting method is crude but provides a useful sanity check against algorithmic estimates. The current algorithm estimates 24.70h (42 min/day drift), which is notably lower than what a manual revolution count might suggest. This discrepancy likely reflects limitations in the current approach: the single linear regression may be pulled by forced-schedule outliers that compress the apparent drift, or the anchor selection may be including sleep records that don't represent the true circadian phase.
+This manual counting method is crude but provides a useful sanity check against algorithmic estimates.
 
 ## Related concepts
 
