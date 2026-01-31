@@ -1,0 +1,29 @@
+{
+  "name": "fitbit-n24",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "d3-scale": "^4.0.2",
+    "d3-time-format": "^4.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "swr": "^2.3.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-time-format": "^4.0.3",
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}

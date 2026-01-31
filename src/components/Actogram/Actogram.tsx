@@ -1,0 +1,72 @@
+import { useState, useCallback, useMemo } from "react";
+import { useActogramRenderer } from "./useActogramRenderer";
+import { buildActogramRows } from "../../models/actogramData";
+import type { SleepRecord } from "../../api/types";
+import type { CircadianDay } from "../../models/circadian";
+
+interface ActogramProps {
+  records: SleepRecord[];
+  circadian: CircadianDay[];
+  doublePlot: boolean;
+  rowHeight: number;
+}
+
+export default function Actogram({
+  records,
+  circadian,
+  doublePlot,
+  rowHeight,
+}: ActogramProps) {
+  const rows = useMemo(() => buildActogramRows(records), [records]);
+  const { canvasRef, getTooltipInfo } = useActogramRenderer(rows, circadian, {
+    doublePlot,
+    rowHeight,
+  });
+
+  const [tooltip, setTooltip] = useState<{
+    x: number;
+    y: number;
+    info: Record<string, string>;
+  } | null>(null);
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const info = getTooltipInfo(x, y);
+      if (info) {
+        setTooltip({ x: e.clientX, y: e.clientY, info });
+      } else {
+        setTooltip(null);
+      }
+    },
+    [getTooltipInfo],
+  );
+
+  const handleMouseLeave = useCallback(() => setTooltip(null), []);
+
+  return (
+    <div className="relative">
+      <canvas
+        ref={canvasRef}
+        className="w-full cursor-crosshair"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      />
+      {tooltip && (
+        <div
+          className="pointer-events-none fixed z-50 rounded bg-gray-900 px-3 py-2 text-xs text-gray-200 shadow-lg"
+          style={{ left: tooltip.x + 12, top: tooltip.y - 10 }}
+        >
+          {Object.entries(tooltip.info).map(([key, val]) => (
+            <div key={key}>
+              <span className="text-gray-400">{key}: </span>
+              {val}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
