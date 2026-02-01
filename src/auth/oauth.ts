@@ -35,7 +35,7 @@ async function computeChallenge(verifier: string): Promise<string> {
  */
 export async function startAuth(): Promise<void> {
   const verifier = generateVerifier();
-  sessionStorage.setItem("pkce_verifier", verifier);
+  localStorage.setItem("pkce_verifier", verifier);
 
   const challenge = await computeChallenge(verifier);
   const clientId = getClientId();
@@ -60,7 +60,7 @@ export async function startAuth(): Promise<void> {
 export async function exchangeCode(
   code: string,
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const verifier = sessionStorage.getItem("pkce_verifier");
+  const verifier = localStorage.getItem("pkce_verifier");
   if (!verifier) throw new Error("No PKCE verifier found in session");
 
   const clientId = getClientId();
@@ -89,7 +89,7 @@ export async function exchangeCode(
     access_token: string;
     expires_in: number;
   };
-  sessionStorage.removeItem("pkce_verifier");
+  localStorage.removeItem("pkce_verifier");
 
   return {
     accessToken: data.access_token,
