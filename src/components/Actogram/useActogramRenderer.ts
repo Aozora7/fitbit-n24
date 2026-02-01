@@ -1,7 +1,8 @@
 import { useEffect, useRef, useCallback } from "react";
 import { scaleLinear } from "d3-scale";
 import type { ActogramRow } from "../../models/actogramData";
-import { computeQualityScore, type CircadianDay } from "../../models/circadian";
+import { type CircadianDay } from "../../models/circadian";
+import { computeQualityScore } from "../../models/computeQualityScore";
 import type { SleepLevelEntry } from "../../api/types";
 
 export type ColorMode = "stages" | "quality";
