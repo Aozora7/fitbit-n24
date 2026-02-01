@@ -74,7 +74,9 @@ function stageColor(level: string): string {
 
 /** Map quality score (0–1) to a red→yellow→green gradient color */
 function qualityColor(score: number): string {
-    const s = Math.max(0, Math.min(1, score));
+    //using range from 50 to 100
+    const scaled = Math.max(0, score - 0.5) * 2;
+    const s = Math.max(0, Math.min(1, scaled));
     // 0 → red (0°), 0.5 → yellow (60°), 1.0 → green (120°)
     const hue = s * 120;
     return `hsl(${hue}, 75%, 45%)`;
@@ -137,15 +139,13 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                 let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
                 let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
                 const h = ((hour % 24) + 24) % 24;
-                const inOverlay = nightEnd < nightStart
-                    ? h >= nightStart || h <= nightEnd
-                    : h >= nightStart && h <= nightEnd;
+                const inOverlay = nightEnd < nightStart ? h >= nightStart || h <= nightEnd : h >= nightStart && h <= nightEnd;
                 if (inOverlay) {
                     return {
                         date: row.date,
                         "circadian night": formatHour(nightStart) + " – " + formatHour(nightEnd),
                         "local τ": cd.localTau.toFixed(2) + "h",
-                        confidence: cd.confidence,
+                        confidence: cd.confidence
                     };
                 }
             }
