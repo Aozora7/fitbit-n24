@@ -11,6 +11,7 @@ N24 is most common in totally blind individuals (who lack the light input needed
 ## How N24 manifests in sleep data
 
 ### The core pattern
+
 When plotted on an actogram, N24 produces a characteristic diagonal stripe pattern. Sleep blocks march to the right (later) by a consistent amount each day. The slope of this diagonal directly reveals the period: steeper = faster drift = longer tau.
 
 ### Real-world complications
@@ -32,12 +33,15 @@ The textbook diagonal is rarely clean in practice:
 ## Why standard charts fail for N24
 
 ### Bar charts
+
 A conventional sleep bar chart shows each day's sleep as a bar at a fixed position on a 24-hour timeline. For someone with N24, the bars migrate across the chart over weeks, making it impossible to see the drift pattern because the X axis resets every day.
 
 ### Weekly/monthly aggregations
+
 Heatmaps or histograms that aggregate sleep times over a week or month average away the drift. A month where sleep circled from nighttime through daytime and back looks like the person sleeps equally at all hours, which is technically true but completely misses the structure.
 
 ### Clock-face plots
+
 Circular plots with 24 hours around the perimeter show what time sleep occurs but not how it changes day-to-day. The temporal progression is lost.
 
 ## The actogram
@@ -45,19 +49,23 @@ Circular plots with 24 hours around the perimeter show what time sleep occurs bu
 The actogram (also called a raster plot or sleep raster) is the standard visualization in chronobiology research. It was developed for analyzing circadian rhythms in laboratory animals and has been adapted for human sleep analysis.
 
 ### Structure
+
 - Each row represents one calendar day
 - The horizontal axis represents time of day (usually 24 hours)
 - Sleep periods are drawn as filled blocks at their time position
 - Days stack vertically, creating a grid where temporal patterns emerge as visual shapes
 
 ### Why it works for N24
+
 The progressive daily delay in sleep times creates a diagonal line sloping downward-right (if oldest days are at top) or upward-right (if newest days are at top). The angle of this diagonal immediately reveals:
+
 - **Period length**: Steeper slope = longer tau = faster drift
 - **Consistency**: A straight diagonal = stable period; curvature = changing period
 - **Entrainment**: Horizontal streaks = the clock is locked to 24 hours
 - **Disruptions**: Scattered blocks or gaps = noisy data or forced schedules
 
 ### Double-plotted actogram
+
 A variant where each row spans 48 hours instead of 24. Each day's data appears twice: once on the right half of its own row and again on the left half of the next row. This makes it much easier to see patterns that cross the midnight boundary, since the visual continuity is preserved. The trade-off is that the horizontal axis is compressed by half.
 
 Double-plotting is standard practice in circadian research because it eliminates the visual discontinuity at midnight that makes single-plotted actograms harder to read for free-running rhythms.
@@ -65,33 +73,32 @@ Double-plotting is standard practice in circadian research because it eliminates
 ## Estimating the circadian period
 
 ### The problem
+
 Given noisy sleep data with forced wake times, naps, and gaps, estimate the underlying circadian period (tau) and predict where the circadian night falls on any given day. The period is not constant — it varies with seasons, light exposure, medication, and other factors — so a single global estimate is insufficient.
 
 ### Phase markers
+
 The sleep midpoint (halfway between sleep onset and wake time) is used as a proxy for the circadian phase. In chronobiology, more precise phase markers include core body temperature minimum (CBTmin) or dim light melatonin onset (DLMO), but these require laboratory measurement. The sleep midpoint is the best available marker from consumer wearable data.
 
 ### Sleep quality as a filter
 
-Not all sleep records are equally informative. When the Fitbit v1.2 API provides sleep stage data, the proportion of REM sleep is the strongest signal for whether sleep was circadian-aligned:
+Not all sleep records are equally informative. When the Fitbit v1.2 API provides sleep stage data, the proportion of REM and deep sleep is the strongest signal for whether a sleep with a long duration was circadian-aligned. Fitbit's own sleep score available in the official app highly correlates with circadian-aligned sleep, however, Fitbit's sleep API does not provide it.
 
-- **Circadian-aligned sleep** (sleeping during the biological night): ~21% REM on average
-- **Misaligned sleep** (sleeping at the wrong circadian time): ~9% REM on average
-
-This makes REM percentage a much better quality signal than Fitbit's "efficiency" field, which only measures restlessness and does not correlate strongly with circadian alignment. The app computes a composite quality score from REM fraction (50% weight), deep sleep duration (25%), and wake penalty (25%). For older records without stage data, efficiency is used as a fallback but capped at 0.7 to reflect its lower reliability.
+This app attempts its own sleep quality score based on sleep duration, deep + REM sleep percentage, and time asleep vs time in bed as a rough approximation of Fitbit's score.
 
 ### Tiered anchor selection
 
 Records are classified into three tiers based on duration and quality:
 
-- **Tier A** (>= 7h, quality >= 0.5, weight 1.0): High-confidence anchors that almost certainly represent circadian sleep
-- **Tier B** (>= 5h, quality >= 0.3, weight 0.4): Moderate-confidence anchors
-- **Tier C** (>= 4h, quality >= 0.2, weight 0.1): Used only for gap-filling when fewer than 25% of days are covered by A and B anchors
+- **Tier A** : High-confidence anchors that almost certainly represent circadian sleep
+- **Tier B** : Moderate-confidence anchors
+- **Tier C** : Used only for gap-filling when fewer than 25% of days are covered by A and B anchors
 
-When multiple records exist for the same calendar day, only the highest-quality one is kept. This tiered approach replaces the earlier simple duration threshold (>= 4h), which included too many forced-schedule sleeps.
+When multiple records exist for the same calendar day, only the highest-quality one is kept.
 
 ### Outlier rejection
 
-After initial anchor selection, a global linear regression is fit and records with residuals exceeding 4 hours are removed. This catches forced-schedule sleeps that passed the duration and quality thresholds but have midpoints far from the true circadian phase.
+After initial anchor selection, a global linear regression is fit and records with residuals exceeding 8 hours are removed. This catches forced-schedule sleeps that passed the duration and quality thresholds but have midpoints far from the true circadian phase.
 
 ### Sliding-window weighted regression
 
@@ -99,7 +106,7 @@ Rather than fitting a single line to the entire dataset (which assumes constant 
 
 1. For each calendar day, collect all anchors within +/- 45 days
 2. Weight each anchor by a Gaussian (sigma = 30 days) multiplied by its tier weight
-3. Fit weighted least squares: midpoint = slope * dayIndex + intercept
+3. Fit weighted least squares: midpoint = slope \* dayIndex + intercept
 4. Local tau = 24 + slope
 
 This produces a per-day tau estimate that captures gradual changes in the circadian period over months and years. The circadian overlay follows these local estimates, so the predicted night band curves rather than being a straight diagonal.
@@ -133,6 +140,7 @@ tau = D / (D - R) * 24
 Or equivalently, the drift per day is `24 * R / D` hours, so `tau = 24 + 24R/D`.
 
 For example, with ~1300 days of data and ~49 full revolutions:
+
 ```
 drift = 24 * 49 / 1300 = 0.905 hours/day = 54.3 min/day
 tau = 24 + 0.905 = 24.905 hours
@@ -143,15 +151,19 @@ This manual counting method is crude but provides a useful sanity check against 
 ## Related concepts
 
 ### Zeitgebers
+
 Environmental cues that entrain the circadian clock. The strongest zeitgeber for humans is light. Others include social schedules, meal times, and exercise. People with N24 have lost effective entrainment to these cues.
 
 ### Phase response curve
+
 The circadian clock's sensitivity to zeitgebers varies by time of day. Light exposure in the early subjective morning advances the clock; light in the early subjective evening delays it. This is why light therapy timing matters for treatment attempts.
 
 ### Circadian vs. homeostatic sleep drive
+
 Sleep is regulated by two processes: the circadian clock (Process C), which creates a ~24h oscillation in sleepiness, and the homeostatic sleep drive (Process S), which builds up with wakefulness. In N24, Process C drifts out of sync with the desired schedule, but Process S still accumulates normally. This is why people with N24 can sometimes force themselves to sleep "on schedule" — homeostatic pressure is high enough — but the sleep quality is poor because it conflicts with the circadian phase.
 
 ### Desynchrony symptoms
+
 When the circadian night falls during waking hours (the "bad" part of the cycle), people with N24 typically experience extreme fatigue, cognitive impairment, mood disruption, gastrointestinal issues, and a general feeling of severe jet lag. When the cycle realigns with a nighttime schedule (the "good" part), they feel relatively normal. This cyclical variation in functioning is a hallmark of the disorder.
 
 ## References and resources

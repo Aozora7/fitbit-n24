@@ -23,14 +23,13 @@ In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/f
 
 ## Tech stack
 
-| Layer         | Choice                 | Why                                               |
-| ------------- | ---------------------- | ------------------------------------------------- |
-| Build         | Vite                   | Fast, zero-config for React + TypeScript          |
-| UI            | React 19 + TypeScript  | Type safety is critical for date/time math        |
-| CSS           | Tailwind CSS v4        | Utility-first, minimal custom CSS needed          |
-| Visualization | HTML Canvas + d3-scale | Custom actogram rendering; d3-scale for axis math |
-| Auth          | OAuth 2.0 PKCE         | Secure client-only auth without a backend         |
-| State         | React Context + hooks  | App is small enough to not need Redux/Zustand     |
+| Layer         | Choice                 |
+| ------------- | ---------------------- |
+| Build         | Vite                   |
+| UI            | React 19 + TypeScript  |
+| CSS           | Tailwind CSS v4        |
+| Visualization | HTML Canvas + d3-scale |
+| Auth          | OAuth 2.0 PKCE         |
 
 ## Quick start
 
@@ -41,7 +40,7 @@ npm run dev
 
 Open http://localhost:5173.
 
-### Fitbit API setup (optional)
+### Fitbit API setup
 
 To fetch data directly from the Fitbit API:
 
