@@ -2,24 +2,25 @@
 
 https://n24.aozora.one/
 
-![screenshot_2026_01_31](https://github.com/Aozora7/fitbit-n24/raw/master/images/screenshot_2026_01_31.png)
+![screenshot](https://github.com/Aozora7/fitbit-n24/raw/master/images/Screenshot-2026-02-01.png)
 
-A client-side React application that visualizes Fitbit sleep data for people with non-24-hour sleep-wake disorder (N24). It renders sleep records as an actogram — a raster plot where each row is one calendar day — making the characteristic circadian drift pattern immediately visible. It estimates the user's circadian period using quality-weighted sliding-window regression and overlays the predicted circadian night with confidence-based transparency.
+A client-side React application that visualizes Fitbit sleep data in a way that's helpful for people with non-24-hour sleep-wake disorder (N24). The main feature is an actogram with sleep stage data, and an overlay that displays estimated circadian night on each day, calculated based on the entire visible data set.
 
-In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/fitbit-sleep-vis) but is implemented completely independently.
+In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/fitbit-sleep-vis) as I've been using it for years, but this project is written completely from scratch due to vastly different objectives and implementation besides fetching.
 
 ## Features
 
 - **Actogram visualization**: Canvas-based raster plot with one row per calendar day, newest first
+- **Periodogram visualization**: Provides frequency analysis of circadian rhythm in the data
 - **Sleep stage coloring**: Deep (dark blue), light (blue), REM (cyan), wake (red) from Fitbit's v1.2 stage data; falls back to asleep/restless/awake coloring for v1 classic data
-- **Variable-rate circadian estimation**: Sliding-window weighted least squares regression that captures how tau changes over time, with quality-scored anchor selection and outlier rejection
 - **Circadian night overlay**: Purple band with confidence-based opacity — more opaque where data is dense, transparent where sparse
 - **OAuth PKCE authentication**: Sign in with Fitbit directly from the browser, no server needed
-- **Progressive data loading**: Actogram renders and updates as each page of API data arrives (100 records per page)
+- **Progressive data loading**: Actogram renders and updates as each page of API data arrives (100 records per page, which is the maximum Fitbit API allows)
 - **Import/export**: Load data from JSON files or export fetched API data for offline use
 - **Double-plot mode**: 48-hour row width for visualizing patterns that cross midnight
 - **Interactive tooltips**: Hover over any sleep block to see date, times, duration, efficiency, and stage breakdown
-- **Adjustable row height**: Slider to zoom between dense overview (2px) and detailed view (16px)
+- **Adjustable row height**: Slider provides vertical zoom for the actogram
+- **Date filter**: Any continous subset of raw data can be selected, and all visualizations and calculations will only process that subset
 
 ## Tech stack
 
@@ -73,7 +74,7 @@ Supported import formats:
 src/
   main.tsx              Entry point, provider hierarchy
   App.tsx               Layout shell (no logic)
-  AppContext.tsx         Global state, derived values, context provider
+  AppContext.tsx        Global state, derived values, context provider
   index.css             Tailwind directives + global styles
 
   api/                  Fitbit API types, fetch wrapper, paginated sleep list
@@ -82,17 +83,3 @@ src/
   models/               Actogram row transform, circadian estimation algorithm
   components/           UI components (header, toolbar, controls, actogram, legend, slider)
 ```
-
-## Known issues and limitations
-
-### Variable circadian period
-
-The sliding-window approach captures gradual changes in tau but cannot detect sudden phase shifts (e.g., from jet lag or medication changes). Change-point detection would help here.
-
-### Classic-type records
-
-Some older Fitbit records use the "classic" format (asleep/restless/awake) even through the v1.2 API. These records don't have sleep stage data and receive a capped quality score, which means the algorithm treats them as lower-confidence anchors.
-
-### Circadian overlay width
-
-The overlay uses an 8-hour window centered on the predicted midpoint. Actual sleep durations vary, and the overlay can appear too wide or too narrow for individual days.
