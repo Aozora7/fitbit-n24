@@ -2,7 +2,7 @@ import { useAppContext } from "../AppContext";
 import type { ColorMode } from "./Actogram/useActogramRenderer";
 
 export default function VisualizationControls() {
-    const { doublePlot, setDoublePlot, showCircadian, setShowCircadian, colorMode, setColorMode, effectiveRowHeight, maxRowHeight, setRowHeight } =
+    const { doublePlot, setDoublePlot, showCircadian, setShowCircadian, showPeriodogram, setShowPeriodogram, colorMode, setColorMode, effectiveRowHeight, maxRowHeight, setRowHeight } =
         useAppContext();
 
     return (
@@ -14,6 +14,10 @@ export default function VisualizationControls() {
             <label className="flex items-center gap-2 text-sm text-gray-300">
                 <input type="checkbox" checked={showCircadian} onChange={e => setShowCircadian(e.target.checked)} className="rounded" />
                 Show circadian overlay
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input type="checkbox" checked={showPeriodogram} onChange={e => setShowPeriodogram(e.target.checked)} className="rounded" />
+                Periodogram
             </label>
             <label className="flex items-center gap-2 text-sm text-gray-300">
                 Color:

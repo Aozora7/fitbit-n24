@@ -121,9 +121,26 @@ A composite confidence score for each day combines anchor density (40%), mean an
 
 **No change-point detection**: The sliding window captures gradual tau changes but cannot detect sudden phase shifts from jet lag, medication changes, or entrainment episodes. These appear as brief anomalies in the overlay rather than clean transitions.
 
+### Phase coherence periodogram
+
+A weighted Rayleigh phase coherence periodogram provides frequency-domain validation of the regression-based tau estimate. For each trial period P (default 23–26 hours in 0.01h steps), anchor times are folded modulo P and mapped to angles on the unit circle. The mean resultant length R measures how concentrated the folded phases are — R ≈ 1 means all anchors align at one phase (strong periodicity), R ≈ 0 means uniform spread (no periodicity).
+
+This approach is standard in chronobiology for phase marker data (sleep midpoints, activity onsets). Unlike spectral methods (Lomb-Scargle, FFT) which require an oscillating signal, the Rayleigh test works directly on event timing data without requiring evenly sampled activity counts.
+
+The periodogram reveals information the actogram and regression cannot show directly:
+- **Dominant period confirmation**: A sharp peak validates the regression-based tau
+- **Partial entrainment**: Power at exactly 24h indicates periods of locking to the solar day
+- **Secondary periodicities**: Peaks at other periods (e.g. weekly forcing from work schedules)
+- **Signal quality**: Peak height relative to the significance threshold (p<0.01) quantifies how clean the free-running rhythm is
+- **Period stability**: Narrow peak = stable tau, broad peak = variable period
+
+The implementation uses the weighted Rayleigh test (Batschelet, 1981), with anchor weights incorporated into the circular mean computation. The significance threshold uses the Rayleigh distribution: R_crit = √(−ln(p) / N_eff) where N_eff is the effective sample size for weighted data.
+
 ### Approaches not yet implemented
 
-**Chi-squared periodogram**: A frequency-domain method from chronobiology that estimates the dominant period in time-series data. More robust to noise than regression because it uses all the data simultaneously rather than just midpoints. Variants include the Lomb-Scargle periodogram (handles uneven sampling) and the Sokolove-Bushell periodogram.
+**Chi-squared periodogram**: The Sokolove-Bushell chi-squared periodogram is an alternative frequency-domain method from chronobiology that bins phases and computes a chi-squared statistic. Similar in spirit to the Rayleigh test but requires choosing a bin count.
+
+**Lomb-Scargle periodogram**: A spectral method designed for unevenly sampled oscillating signals. Better suited for continuous data (activity counts, temperature) than for phase markers. Could be applied to a binary sleep/wake time series constructed from the raw records.
 
 **Change-point detection**: Statistical methods to identify moments where the underlying period shifts. Could be combined with the sliding-window approach to detect and label entrainment episodes.
 
@@ -172,4 +189,3 @@ When the circadian night falls during waking hours (the "bad" part of the cycle)
 - Uchiyama M, Lockley SW. "Non-24-hour sleep-wake rhythm disorder in sighted and blind patients" (2015) - Comprehensive review of N24
 - Refinetti R. "Circadian Physiology" (3rd ed.) - Textbook covering actogram methodology and period analysis
 - Sokolove PG, Bushell WN. "The chi square periodogram: its utility for analysis of circadian rhythms" (1978) - Original chi-squared periodogram method
-- circadiaware.github.io - Community resources about circadian rhythm disorders

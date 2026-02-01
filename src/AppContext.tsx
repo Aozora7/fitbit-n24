@@ -33,6 +33,8 @@ export interface AppState {
     setDoublePlot: (v: boolean) => void;
     showCircadian: boolean;
     setShowCircadian: (v: boolean) => void;
+    showPeriodogram: boolean;
+    setShowPeriodogram: (v: boolean) => void;
     colorMode: ColorMode;
     setColorMode: (v: ColorMode) => void;
     rowHeight: number;
@@ -61,6 +63,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [doublePlot, setDoublePlot] = useState(false);
     const [rowHeight, setRowHeight] = useState(5);
     const [showCircadian, setShowCircadian] = useState(true);
+    const [showPeriodogram, setShowPeriodogram] = useState(true);
     const [colorMode, setColorMode] = useState<ColorMode>("stages");
 
     // Auto-import dev data file if present (development convenience)
@@ -197,6 +200,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setDoublePlot,
             showCircadian,
             setShowCircadian,
+            showPeriodogram,
+            setShowPeriodogram,
             colorMode,
             setColorMode,
             rowHeight,
@@ -222,6 +227,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             avgSleepPerDay,
             doublePlot,
             showCircadian,
+            showPeriodogram,
             colorMode,
             rowHeight,
             maxRowHeight,

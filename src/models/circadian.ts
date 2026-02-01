@@ -14,10 +14,19 @@ export interface CircadianDay {
     anchorSleep?: SleepRecord;
 }
 
+export interface AnchorPoint {
+    dayNumber: number;
+    midpointHour: number; // unwrapped hours from first day's midnight
+    weight: number;
+    tier: "A" | "B" | "C";
+    date: string;
+}
+
 export interface CircadianAnalysis {
     globalTau: number;
     globalDailyDrift: number;
     days: CircadianDay[];
+    anchors: AnchorPoint[];
     medianResidualHours: number;
     anchorCount: number;
     anchorTierCounts: { A: number; B: number; C: number };
@@ -287,6 +296,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
         globalTau: 24,
         globalDailyDrift: 0,
         days: [],
+        anchors: [],
         medianResidualHours: 0,
         anchorCount: 0,
         anchorTierCounts: { A: 0, B: 0, C: 0 },
@@ -446,6 +456,13 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
         globalTau,
         globalDailyDrift: globalDrift,
         days,
+        anchors: anchors.map(a => ({
+            dayNumber: a.dayNumber,
+            midpointHour: a.midpointHour,
+            weight: a.weight,
+            tier: a.tier,
+            date: a.date
+        })),
         medianResidualHours: medResidual,
         anchorCount: anchors.length,
         anchorTierCounts: tierCounts,
