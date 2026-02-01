@@ -80,6 +80,13 @@ function qualityColor(score: number): string {
     return `hsl(${hue}, 75%, 45%)`;
 }
 
+/** Format fractional hour (e.g. 23.5) as "23:30" */
+function formatHour(h: number): string {
+    const hr = Math.floor(((h % 24) + 24) % 24);
+    const min = Math.round((h - Math.floor(h)) * 60);
+    return String(hr).padStart(2, "0") + ":" + String(min).padStart(2, "0");
+}
+
 export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay[], config: Partial<ActogramConfig> = {}) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const cfg = { ...DEFAULT_CONFIG, ...config };
@@ -122,10 +129,30 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                     return info;
                 }
             }
+            // Check if hovering over circadian overlay
+            const circadianMap = new Map<string, CircadianDay>();
+            for (const cd of circadian) circadianMap.set(cd.date, cd);
+            const cd = circadianMap.get(row.date);
+            if (cd) {
+                let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
+                let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
+                const h = ((hour % 24) + 24) % 24;
+                const inOverlay = nightEnd < nightStart
+                    ? h >= nightStart || h <= nightEnd
+                    : h >= nightStart && h <= nightEnd;
+                if (inOverlay) {
+                    return {
+                        date: row.date,
+                        "circadian night": formatHour(nightStart) + " – " + formatHour(nightEnd),
+                        "local τ": cd.localTau.toFixed(2) + "h",
+                        confidence: cd.confidence,
+                    };
+                }
+            }
 
             return { date: row.date } as Record<string, string>;
         },
-        [rows, cfg, hoursPerRow]
+        [rows, circadian, cfg, hoursPerRow]
     );
 
     useEffect(() => {
