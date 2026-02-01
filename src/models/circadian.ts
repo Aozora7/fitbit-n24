@@ -41,11 +41,11 @@ interface Anchor {
 
 // ─── Constants ─────────────────────────────────────────────────────
 
-const WINDOW_HALF = 45; // 90-day window
-const MAX_WINDOW_HALF = 90; // expand to 180 days if sparse
-const MIN_ANCHORS_PER_WINDOW = 8;
-const GAUSSIAN_SIGMA = 30; // half-weight at 30 days from center
-const OUTLIER_THRESHOLD_HOURS = 4;
+const WINDOW_HALF = 21; // 42-day window
+const MAX_WINDOW_HALF = 60; // expand to 120 days if sparse
+const MIN_ANCHORS_PER_WINDOW = 6;
+const GAUSSIAN_SIGMA = 14; // half-weight at 14 days from center
+const OUTLIER_THRESHOLD_HOURS = 8; // only catch genuine data errors
 
 // ─── Sleep quality score ───────────────────────────────────────────
 
@@ -143,17 +143,57 @@ function sleepMidpointHour(record: SleepRecord, firstDateMs: number): number {
 // ─── Unwrapping ────────────────────────────────────────────────────
 
 function unwrapAnchors(anchors: Anchor[]): void {
-    // Midpoints are absolute hours from epoch, so they should be
-    // monotonically increasing for free-running N24. Handle jumps
-    // from mislabeled dateOfSleep or forced sleeps.
+    if (anchors.length < 2) return;
+
+    // Pass 1: Sequential pairwise unwrap (rough trajectory)
     for (let i = 1; i < anchors.length; i++) {
         const prev = anchors[i - 1]!.midpointHour;
         let curr = anchors[i]!.midpointHour;
-
         while (curr - prev > 12) curr -= 24;
         while (prev - curr > 12) curr += 24;
-
         anchors[i]!.midpointHour = curr;
+    }
+
+    // Pass 2: Global linear fit — snap each anchor within 12h of prediction
+    // Fixes large cascading errors from Pass 1
+    const roughPoints = anchors.map(a => ({
+        x: a.dayNumber,
+        y: a.midpointHour,
+        w: a.weight
+    }));
+    const rough = weightedLinearRegression(roughPoints);
+
+    for (let i = 0; i < anchors.length; i++) {
+        const predicted = rough.slope * anchors[i]!.dayNumber + rough.intercept;
+        let mid = anchors[i]!.midpointHour;
+        while (mid - predicted > 12) mid -= 24;
+        while (predicted - mid > 12) mid += 24;
+        anchors[i]!.midpointHour = mid;
+    }
+
+    // Pass 3: Rolling local fit (30-day lookback) — follows local trends
+    // through periods where tau changes
+    const LOOKBACK = 30;
+    for (let i = 1; i < anchors.length; i++) {
+        const localPoints: { x: number; y: number; w: number }[] = [];
+        for (let j = 0; j < i; j++) {
+            if (anchors[i]!.dayNumber - anchors[j]!.dayNumber <= LOOKBACK) {
+                localPoints.push({
+                    x: anchors[j]!.dayNumber,
+                    y: anchors[j]!.midpointHour,
+                    w: anchors[j]!.weight
+                });
+            }
+        }
+
+        if (localPoints.length >= 2) {
+            const localFit = weightedLinearRegression(localPoints);
+            const localPred = localFit.slope * anchors[i]!.dayNumber + localFit.intercept;
+            let mid = anchors[i]!.midpointHour;
+            while (mid - localPred > 12) mid -= 24;
+            while (localPred - mid > 12) mid += 24;
+            anchors[i]!.midpointHour = mid;
+        }
     }
 }
 
@@ -183,6 +223,46 @@ function weightedLinearRegression(points: { x: number; y: number; w: number }[])
         slope: (sumW * sumWXY - sumWX * sumWY) / denom,
         intercept: (sumWY * sumWXX - sumWX * sumWXY) / denom
     };
+}
+
+// ─── Robust regression (IRLS with Tukey bisquare) ─────────────────
+
+function robustWeightedRegression(points: { x: number; y: number; w: number }[], maxIter = 5, tuningConstant = 4.685): { slope: number; intercept: number } {
+    if (points.length < 2) {
+        return { slope: 0, intercept: points.length > 0 ? points[0]!.y : 0 };
+    }
+
+    // Initial fit using standard WLS
+    let { slope, intercept } = weightedLinearRegression(points);
+
+    for (let iter = 0; iter < maxIter; iter++) {
+        // Compute residuals
+        const residuals = points.map(p => p.y - (slope * p.x + intercept));
+
+        // MAD (median absolute deviation) of residuals
+        const absRes = residuals.map(r => Math.abs(r));
+        absRes.sort((a, b) => a - b);
+        const mad = absRes[Math.floor(absRes.length / 2)]! || 1;
+        const scale = Math.max(mad / 0.6745, 0.5); // 0.5h minimum scale
+
+        // Tukey bisquare reweighting
+        const reweighted = points.map((p, i) => {
+            const u = residuals[i]! / (tuningConstant * scale);
+            const bisquareW = Math.abs(u) <= 1 ? (1 - u * u) ** 2 : 0;
+            return { x: p.x, y: p.y, w: p.w * bisquareW };
+        });
+
+        const activeCount = reweighted.filter(p => p.w > 1e-6).length;
+        if (activeCount < 2) break;
+
+        const newFit = weightedLinearRegression(reweighted);
+        if (Math.abs(newFit.slope - slope) < 1e-6) break;
+
+        slope = newFit.slope;
+        intercept = newFit.intercept;
+    }
+
+    return { slope, intercept };
 }
 
 // ─── Gaussian kernel ───────────────────────────────────────────────
@@ -229,7 +309,7 @@ function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number
         };
     }
 
-    const { slope, intercept } = weightedLinearRegression(points);
+    const { slope, intercept } = robustWeightedRegression(points);
 
     // Compute residual MAD
     const residuals = points.map(p => Math.abs(p.y - (slope * p.x + intercept)));
@@ -330,7 +410,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
         }
     }
 
-    if (outliers.size > 0 && outliers.size < anchors.length * 0.3) {
+    if (outliers.size > 0 && outliers.size < anchors.length * 0.15) {
         anchors = anchors.filter((_, i) => !outliers.has(i));
         unwrapAnchors(anchors);
     }
@@ -364,7 +444,10 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
 
         let result = evaluateWindow(anchors, d, WINDOW_HALF);
         if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
-            result = evaluateWindow(anchors, d, MAX_WINDOW_HALF);
+            result = evaluateWindow(anchors, d, Math.round(WINDOW_HALF * 1.5));
+            if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
+                result = evaluateWindow(anchors, d, MAX_WINDOW_HALF);
+            }
         }
 
         const predictedMid = result.slope * d + result.intercept;
