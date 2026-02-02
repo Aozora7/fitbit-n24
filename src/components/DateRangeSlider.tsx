@@ -1,9 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAppContext } from "../AppContext";
 
-/** Actogram renderer left/right margins (must match useActogramRenderer) */
-const MARGIN = 16;
-
 /**
  * Dual-thumb range slider for date filtering.
  * Uses two native range inputs overlaid on each other.
@@ -90,7 +87,7 @@ export default function DateRangeSlider() {
     const isFiltered = localStart > 0 || localEnd < totalDays;
 
     return (
-        <div className="mt-2" style={{ paddingLeft: MARGIN, paddingRight: MARGIN }}>
+        <div className="mt-2">
             {/* Date labels */}
             <div className="mb-1 flex items-center justify-between text-xs text-gray-400">
                 <span className={isFiltered ? "text-blue-400" : ""}>{dayLabel(localStart)}</span>
@@ -123,6 +120,7 @@ export default function DateRangeSlider() {
                     type="range"
                     min={0}
                     max={totalDays}
+                    step={1}
                     value={localStart}
                     onChange={handleStartChange}
                     onMouseUp={commitValues}
@@ -137,6 +135,7 @@ export default function DateRangeSlider() {
                     type="range"
                     min={0}
                     max={totalDays}
+                    step={1}
                     value={localEnd}
                     onChange={handleEndChange}
                     onMouseUp={commitValues}
@@ -147,8 +146,8 @@ export default function DateRangeSlider() {
                 />
             </div>
 
-            {/* Year marks */}
-            <div className="relative mt-1 h-2">
+            {/* Year marks – padded to match range input thumb offset */}
+            <div className="relative mt-1 h-2" style={{ marginLeft: 8, marginRight: 8 }}>
                 {yearMarks().map(mark => {
                     const position = (mark.dayIdx / totalDays) * 100;
                     return (
