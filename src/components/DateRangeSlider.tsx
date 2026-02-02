@@ -62,6 +62,25 @@ export default function DateRangeSlider() {
         [firstDateStr]
     );
 
+    // Calculate year marks (day indices where each year starts)
+    const yearMarks = useCallback((): Array<{ dayIdx: number; year: number }> => {
+        if (!firstDateStr || totalDays <= 1) return [];
+
+        const marks: Array<{ dayIdx: number; year: number }> = [];
+        const firstDate = new Date(firstDateStr + "T00:00:00");
+
+        // Find all year boundaries within the range
+        let currentDate = new Date(firstDate);
+        for (let dayIdx = 0; dayIdx <= totalDays; dayIdx++) {
+            currentDate.setTime(firstDate.getTime() + dayIdx * 86400000);
+            if (currentDate.getMonth() === 0 && currentDate.getDate() === 1) {
+                marks.push({ dayIdx, year: currentDate.getFullYear() });
+            }
+        }
+
+        return marks;
+    }, [firstDateStr, totalDays]);
+
     if (totalDays <= 1) return null;
 
     // Fill percentage for the active range highlight
@@ -92,7 +111,7 @@ export default function DateRangeSlider() {
             </div>
 
             {/* Slider track with two range inputs */}
-            <div className="relative h-5">
+            <div className="relative h-3">
                 {/* Background track */}
                 <div className="absolute top-2 right-0 left-0 h-1 rounded bg-gray-700" />
 
@@ -126,6 +145,23 @@ export default function DateRangeSlider() {
                     className="range-thumb pointer-events-none absolute top-0 z-20 h-5 w-full appearance-none bg-transparent"
                     style={{ pointerEvents: "none" }}
                 />
+            </div>
+
+            {/* Year marks */}
+            <div className="relative mt-1 h-2">
+                {yearMarks().map(mark => {
+                    const position = (mark.dayIdx / totalDays) * 100;
+                    return (
+                        <div key={mark.dayIdx} className="absolute" style={{ left: `${position}%` }}>
+                            {/* Tick mark */}
+                            <div className="h-1 w-px bg-gray-600" />
+                            {/* Year label */}
+                            <div className="text-[10px] text-gray-500" style={{ transform: "translateX(-50%)" }}>
+                                {mark.year}
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

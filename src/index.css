@@ -7,12 +7,11 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
 }
 
-/* Dual-thumb range slider styling */
 .range-thumb::-webkit-slider-thumb {
   -webkit-appearance: none;
   pointer-events: auto;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #60a5fa;
   border: 2px solid #1e293b;
@@ -22,8 +21,8 @@ body {
 
 .range-thumb::-moz-range-thumb {
   pointer-events: auto;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #60a5fa;
   border: 2px solid #1e293b;
@@ -39,3 +38,4 @@ body {
   background: #475569;
   cursor: not-allowed;
 }
+

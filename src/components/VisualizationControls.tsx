@@ -2,8 +2,19 @@ import { useAppContext } from "../AppContext";
 import type { ColorMode } from "./Actogram/useActogramRenderer";
 
 export default function VisualizationControls() {
-    const { doublePlot, setDoublePlot, showCircadian, setShowCircadian, showPeriodogram, setShowPeriodogram, colorMode, setColorMode, effectiveRowHeight, maxRowHeight, setRowHeight } =
-        useAppContext();
+    const {
+        doublePlot,
+        setDoublePlot,
+        showCircadian,
+        setShowCircadian,
+        showPeriodogram,
+        setShowPeriodogram,
+        colorMode,
+        setColorMode,
+        effectiveRowHeight,
+        maxRowHeight,
+        setRowHeight
+    } = useAppContext();
 
     return (
         <div className="mx-auto mb-4 flex flex-wrap max-w-5xl gap-4">
@@ -27,7 +38,7 @@ export default function VisualizationControls() {
                     className="rounded bg-gray-700 px-2 py-0.5 text-sm text-gray-300"
                 >
                     <option value="stages">Sleep stages</option>
-                    <option value="quality">Quality (red→green)</option>
+                    <option value="quality">Quality</option>
                 </select>
             </label>
             <label className="flex items-center gap-2 text-sm text-gray-300">
