@@ -40,7 +40,7 @@ export default function Periodogram() {
         if (!showPeriodogram) return;
         const canvas = canvasRef.current;
         const container = containerRef.current;
-        if (!canvas || !container || result.points.length === 0) return;
+        if (!canvas || !container || result.trimmedPoints.length === 0) return;
 
         const dpr = window.devicePixelRatio || 1;
         const width = container.clientWidth;
@@ -63,9 +63,10 @@ export default function Periodogram() {
         const plotWidth = plotRight - plotLeft;
         const plotHeight = plotBottom - plotTop;
 
-        // Scales
-        const minP = result.points[0]!.period;
-        const maxP = result.points[result.points.length - 1]!.period;
+        // Scales — use trimmed range for display
+        const displayPoints = result.trimmedPoints;
+        const minP = displayPoints[0]!.period;
+        const maxP = displayPoints[displayPoints.length - 1]!.period;
         const maxPow = Math.max(result.peakPower * 1.1, result.significanceThreshold * 1.5, 1);
 
         const xScale = scaleLinear().domain([minP, maxP]).range([plotLeft, plotRight]);
@@ -144,8 +145,8 @@ export default function Periodogram() {
         ctx.strokeStyle = COLORS.line;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        for (let i = 0; i < result.points.length; i++) {
-            const pt = result.points[i]!;
+        for (let i = 0; i < displayPoints.length; i++) {
+            const pt = displayPoints[i]!;
             const x = xScale(pt.period);
             const y = yScale(pt.power);
             if (i === 0) ctx.moveTo(x, y);
@@ -156,8 +157,8 @@ export default function Periodogram() {
         // Fill under curve
         ctx.globalAlpha = 0.1;
         ctx.fillStyle = COLORS.line;
-        ctx.lineTo(xScale(result.points[result.points.length - 1]!.period), plotBottom);
-        ctx.lineTo(xScale(result.points[0]!.period), plotBottom);
+        ctx.lineTo(xScale(displayPoints[displayPoints.length - 1]!.period), plotBottom);
+        ctx.lineTo(xScale(displayPoints[0]!.period), plotBottom);
         ctx.closePath();
         ctx.fill();
         ctx.globalAlpha = 1;
@@ -221,7 +222,7 @@ export default function Periodogram() {
     // Tooltip handler
     const getTooltipInfo = useCallback(
         (canvasX: number): { period: string; power: string } | null => {
-            if (result.points.length === 0) return null;
+            if (result.trimmedPoints.length === 0) return null;
 
             const canvas = canvasRef.current;
             if (!canvas) return null;
@@ -230,17 +231,17 @@ export default function Periodogram() {
             const plotLeft = MARGINS.left;
             const plotRight = width - MARGINS.right;
 
-            const minP = result.points[0]!.period;
-            const maxP = result.points[result.points.length - 1]!.period;
+            const minP = result.trimmedPoints[0]!.period;
+            const maxP = result.trimmedPoints[result.trimmedPoints.length - 1]!.period;
             const xScale = scaleLinear().domain([minP, maxP]).range([plotLeft, plotRight]);
 
             const period = xScale.invert(canvasX);
             if (period < minP || period > maxP) return null;
 
             // Find closest point
-            let closest = result.points[0]!;
+            let closest = result.trimmedPoints[0]!;
             let minDist = Infinity;
-            for (const pt of result.points) {
+            for (const pt of result.trimmedPoints) {
                 const d = Math.abs(pt.period - period);
                 if (d < minDist) {
                     minDist = d;
@@ -272,7 +273,7 @@ export default function Periodogram() {
 
     const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
-    if (!showPeriodogram || result.points.length === 0) return null;
+    if (!showPeriodogram || result.trimmedPoints.length === 0) return null;
 
     return (
         <div className="relative mt-4" ref={containerRef}>

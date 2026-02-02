@@ -8,7 +8,8 @@ export interface PeriodogramPoint {
 }
 
 export interface PeriodogramResult {
-    points: PeriodogramPoint[];
+    points: PeriodogramPoint[]; // full computed range
+    trimmedPoints: PeriodogramPoint[]; // auto-trimmed to region of interest for display
     peakPeriod: number;
     peakPower: number;
     significanceThreshold: number; // Rayleigh test, p < 0.01
@@ -58,6 +59,10 @@ function gaussianSmooth(values: number[], sigma: number): number[] {
  * Instead, R² is computed within overlapping windows (~120 days) where
  * tau is approximately stable, then averaged across all windows.
  *
+ * The periodogram is computed over a wide range (16–48h) but the result
+ * includes a `trimmedPoints` array auto-focused on the region of interest
+ * (around significant peaks, always including 24h as reference).
+ *
  * Reference: Batschelet (1981) "Circular Statistics in Biology"
  *            Refinetti (2016) "Circadian Physiology"
  */
@@ -73,6 +78,7 @@ export function computeLombScargle(
 
     const empty: PeriodogramResult = {
         points: [],
+        trimmedPoints: [],
         peakPeriod: 24,
         peakPower: 0,
         significanceThreshold: 0,
@@ -90,26 +96,22 @@ export function computeLombScargle(
     const spanDays = lastDay - firstDay;
 
     // Sliding window parameters
-    // Window should be long enough to contain several cycles (~5 full cycles
-    // at 25h = ~125 days) but short enough that tau is approximately constant.
     const WINDOW_DAYS = 120;
-    const WINDOW_STEP = 30; // step windows by 30 days
-    const MIN_ANCHORS = 8; // minimum anchors per window for a valid estimate
+    const WINDOW_STEP = 30;
+    const MIN_ANCHORS = 8;
 
     // Build windows
     interface Window {
-        indices: number[]; // indices into anchors array
+        indices: number[];
         totalW: number;
     }
 
     const windows: Window[] = [];
 
     if (spanDays <= WINDOW_DAYS * 1.5) {
-        // Short dataset — use all data as a single window
         const totalW = weights.reduce((s, w) => s + w, 0);
         windows.push({ indices: anchors.map((_, i) => i), totalW });
     } else {
-        // Slide windows across the data
         for (let center = firstDay + WINDOW_DAYS / 2; center <= lastDay - WINDOW_DAYS / 2 + WINDOW_STEP; center += WINDOW_STEP) {
             const halfW = WINDOW_DAYS / 2;
             const indices: number[] = [];
@@ -169,7 +171,7 @@ export function computeLombScargle(
 
             const C = sumCos / win.totalW;
             const S = sumSin / win.totalW;
-            powerSum += C * C + S * S; // R² for this window
+            powerSum += C * C + S * S;
         }
 
         avgPower[k] = powerSum / windows.length;
@@ -178,7 +180,7 @@ export function computeLombScargle(
     // Gaussian smooth to suppress aliasing sidelobes
     const smoothed = gaussianSmooth(avgPower, 3);
 
-    // Build result from smoothed data
+    // Build full result
     const points: PeriodogramPoint[] = [];
     let peakPower = 0;
     let peakPeriod = 24;
@@ -201,11 +203,55 @@ export function computeLombScargle(
     }
 
     // Rayleigh significance threshold for p < 0.01 (R² scale)
-    // Uses median effective sample size across windows
     const significanceThreshold = -Math.log(0.01) / medianNeff;
+
+    // ── Auto-trim to region of interest ─────────────────────────
+    const PADDING = 0.25; // 15 minutes
+    const MIN_DISPLAY_WIDTH = 2;
+
+    // Find extent of significant peaks
+    let sigMin = Infinity;
+    let sigMax = -Infinity;
+    for (const pt of points) {
+        if (pt.power > significanceThreshold) {
+            sigMin = Math.min(sigMin, pt.period);
+            sigMax = Math.max(sigMax, pt.period);
+        }
+    }
+
+    let displayMin: number;
+    let displayMax: number;
+
+    if (sigMin <= sigMax) {
+        // Significant peaks found — trim around them
+        displayMin = sigMin - PADDING;
+        displayMax = sigMax + PADDING;
+    } else {
+        // No significant peaks — center on peak ±1h
+        displayMin = peakPeriod - 1;
+        displayMax = peakPeriod + 1;
+    }
+
+    // Always include 24h reference
+    displayMin = Math.min(displayMin, 24 - PADDING);
+    displayMax = Math.max(displayMax, 24 + PADDING);
+
+    // Enforce minimum display width
+    if (displayMax - displayMin < MIN_DISPLAY_WIDTH) {
+        const center = (displayMin + displayMax) / 2;
+        displayMin = center - MIN_DISPLAY_WIDTH / 2;
+        displayMax = center + MIN_DISPLAY_WIDTH / 2;
+    }
+
+    // Clamp to computed range
+    displayMin = Math.max(minPeriod, displayMin);
+    displayMax = Math.min(maxPeriod, displayMax);
+
+    const trimmedPoints = points.filter(p => p.period >= displayMin && p.period <= displayMax);
 
     return {
         points,
+        trimmedPoints,
         peakPeriod,
         peakPower,
         significanceThreshold,
