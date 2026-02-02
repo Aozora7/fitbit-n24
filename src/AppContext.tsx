@@ -37,6 +37,8 @@ export interface AppState {
     setShowPeriodogram: (v: boolean) => void;
     colorMode: ColorMode;
     setColorMode: (v: ColorMode) => void;
+    tauHours: number;
+    setTauHours: (v: number) => void;
     rowHeight: number;
     setRowHeight: (v: number) => void;
     maxRowHeight: number;
@@ -65,6 +67,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [showCircadian, setShowCircadian] = useState(true);
     const [showPeriodogram, setShowPeriodogram] = useState(true);
     const [colorMode, setColorMode] = useState<ColorMode>("stages");
+    const [tauHours, setTauHours] = useState(24);
 
     // Auto-import dev data file if present (development convenience)
     const autoImportedRef = useRef(false);
@@ -204,6 +207,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setShowPeriodogram,
             colorMode,
             setColorMode,
+            tauHours,
+            setTauHours,
             rowHeight,
             setRowHeight,
             maxRowHeight,
@@ -229,6 +234,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             showCircadian,
             showPeriodogram,
             colorMode,
+            tauHours,
             rowHeight,
             maxRowHeight,
             effectiveRowHeight,

@@ -1,21 +1,23 @@
 import type { SleepRecord } from "../api/types";
 
-/** A single sleep block positioned within a 24h window */
+/** A single sleep block positioned within a row's time window */
 export interface SleepBlock {
-  /** Fractional hour start within the day (0-24) */
+  /** Fractional hour start within the row (0 to rowWidth) */
   startHour: number;
-  /** Fractional hour end within the day (0-24) */
+  /** Fractional hour end within the row (0 to rowWidth) */
   endHour: number;
   /** Original record reference (carries minuteData or stageData) */
   record: SleepRecord;
 }
 
-/** One row in the actogram, representing a single calendar day */
+/** One row in the actogram */
 export interface ActogramRow {
-  /** Calendar date string "YYYY-MM-DD" */
+  /** Label string — "YYYY-MM-DD" for calendar mode, "YYYY-MM-DD HH:mm" for tau mode */
   date: string;
-  /** Sleep blocks that overlap this calendar day, clipped to [0, 24] */
+  /** Sleep blocks clipped to this row's time window */
   blocks: SleepBlock[];
+  /** Absolute start time of this row in ms (present in tau mode) */
+  startMs?: number;
 }
 
 /** Format a local Date as "YYYY-MM-DD" without UTC conversion */
@@ -94,6 +96,68 @@ export function buildActogramRows(records: SleepRecord[], extraDays = 0): Actogr
       }
 
       dayStart.setDate(dayStart.getDate() + 1);
+    }
+  }
+
+  // Newest first
+  rows.reverse();
+
+  return rows;
+}
+
+/**
+ * Build actogram rows with a custom row width (tau) in hours.
+ * Each row spans `tau` hours, starting from the first record's midnight.
+ * When tau=24 the result is equivalent to buildActogramRows (but row 0
+ * starts at the first record's local midnight rather than calendar-day aligned).
+ */
+export function buildTauRows(records: SleepRecord[], tau: number, extraDays = 0): ActogramRow[] {
+  if (records.length === 0) return [];
+
+  const tauMs = tau * 3_600_000;
+
+  // Start from midnight of the first record's day
+  const originMs = localMidnight(records[0]!.startTime).getTime();
+  const lastMs = records[records.length - 1]!.endTime.getTime() + extraDays * 86_400_000;
+
+  const rowCount = Math.ceil((lastMs - originMs) / tauMs);
+  const rows: ActogramRow[] = [];
+
+  for (let i = 0; i < rowCount; i++) {
+    const rowStartMs = originMs + i * tauMs;
+    const d = new Date(rowStartMs);
+    const dateStr = toLocalDateStr(d);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    // Only append time if row doesn't start at midnight
+    const label = d.getHours() === 0 && d.getMinutes() === 0 ? dateStr : `${dateStr} ${hh}:${mm}`;
+
+    rows.push({ date: label, blocks: [], startMs: rowStartMs });
+  }
+
+  // Place each sleep record into overlapping rows
+  for (const record of records) {
+    const sleepStartMs = record.startTime.getTime();
+    const sleepEndMs = record.endTime.getTime();
+
+    // Find the first row that could overlap
+    const firstRow = Math.max(0, Math.floor((sleepStartMs - originMs) / tauMs));
+    const lastRow = Math.min(rows.length - 1, Math.floor((sleepEndMs - originMs) / tauMs));
+
+    for (let i = firstRow; i <= lastRow; i++) {
+      const rowStartMs = originMs + i * tauMs;
+      const rowEndMs = rowStartMs + tauMs;
+
+      const blockStartMs = Math.max(sleepStartMs, rowStartMs);
+      const blockEndMs = Math.min(sleepEndMs, rowEndMs);
+
+      if (blockEndMs > blockStartMs) {
+        rows[i]!.blocks.push({
+          startHour: (blockStartMs - rowStartMs) / 3_600_000,
+          endHour: (blockEndMs - rowStartMs) / 3_600_000,
+          record,
+        });
+      }
     }
   }
 

@@ -10,14 +10,15 @@ In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/f
 
 ## Features
 
-- **Actogram visualization**: Canvas-based raster plot with one row per calendar day, newest first
+- **Actogram visualization**: Canvas-based raster plot with one row per calendar day, newest first; supports adjustable row width (τ) so rows can match a non-24-hour circadian period and sleep blocks align vertically
 - **Periodogram visualization**: Provides frequency analysis of circadian rhythm in the data
 - **Sleep stage coloring**: Deep (dark blue), light (blue), REM (cyan), wake (red) from Fitbit's v1.2 stage data; falls back to asleep/restless/awake coloring for v1 classic data
 - **Circadian night overlay**: Purple band with confidence-based opacity — more opaque where data is dense, transparent where sparse
 - **OAuth PKCE authentication**: Sign in with Fitbit directly from the browser, no server needed
 - **Progressive data loading**: Actogram renders and updates as each page of API data arrives (100 records per page, which is the maximum Fitbit API allows)
 - **Import/export**: Load data from JSON files or export fetched API data for offline use
-- **Double-plot mode**: 48-hour row width for visualizing patterns that cross midnight
+- **Adjustable row width (τ)**: Set the actogram row length to the estimated circadian period (or any value between 23–26h) so that sleep records line up vertically; defaults to 24h calendar days
+- **Double-plot mode**: Double row width for visualizing patterns that cross row boundaries
 - **Interactive tooltips**: Hover over any sleep block to see date, times, duration, efficiency, and stage breakdown
 - **Adjustable row height**: Slider provides vertical zoom for the actogram
 - **Date filter**: Any continous subset of raw data can be selected, and all visualizations and calculations will only process that subset

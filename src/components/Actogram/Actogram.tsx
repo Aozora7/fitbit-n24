@@ -1,14 +1,16 @@
 import { useState, useCallback, useMemo } from "react";
 import { useActogramRenderer } from "./useActogramRenderer";
-import { buildActogramRows } from "../../models/actogramData";
+import { buildActogramRows, buildTauRows } from "../../models/actogramData";
 import { useAppContext } from "../../AppContext";
 
 export default function Actogram() {
-  const { filteredRecords, showCircadian, circadianAnalysis, doublePlot, effectiveRowHeight, colorMode, forecastDays } = useAppContext();
+  const { filteredRecords, showCircadian, circadianAnalysis, doublePlot, effectiveRowHeight, colorMode, tauHours, forecastDays } = useAppContext();
 
   const rows = useMemo(
-    () => buildActogramRows(filteredRecords, forecastDays),
-    [filteredRecords, forecastDays],
+    () => tauHours !== 24
+      ? buildTauRows(filteredRecords, tauHours, forecastDays)
+      : buildActogramRows(filteredRecords, forecastDays),
+    [filteredRecords, forecastDays, tauHours],
   );
 
   const circadianDays = showCircadian ? circadianAnalysis.days : [];
@@ -17,6 +19,7 @@ export default function Actogram() {
     doublePlot,
     rowHeight: effectiveRowHeight,
     colorMode,
+    tauHours,
   });
 
   const [tooltip, setTooltip] = useState<{

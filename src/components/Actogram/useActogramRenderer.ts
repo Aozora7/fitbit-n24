@@ -11,6 +11,7 @@ export interface ActogramConfig {
     doublePlot: boolean;
     rowHeight: number;
     colorMode: ColorMode;
+    tauHours: number;
     leftMargin: number;
     topMargin: number;
     rightMargin: number;
@@ -21,6 +22,7 @@ const DEFAULT_CONFIG: ActogramConfig = {
     doublePlot: false,
     rowHeight: 5,
     colorMode: "stages",
+    tauHours: 24,
     leftMargin: 80,
     topMargin: 30,
     rightMargin: 16,
@@ -93,7 +95,13 @@ function formatHour(h: number): string {
 export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay[], config: Partial<ActogramConfig> = {}) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const cfg = { ...DEFAULT_CONFIG, ...config };
-    const hoursPerRow = cfg.doublePlot ? 48 : 24;
+    const tauMode = cfg.tauHours !== 24;
+    const baseHours = tauMode ? cfg.tauHours : 24;
+    const hoursPerRow = cfg.doublePlot ? baseHours * 2 : baseHours;
+    // Wider left margin for tau mode labels ("YYYY-MM-DD HH:mm")
+    if (tauMode && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
+        cfg.leftMargin = 110;
+    }
 
     const getTooltipInfo = useCallback(
         (canvasX: number, canvasY: number): Record<string, string> | null => {
@@ -115,7 +123,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
             // Find block at this hour
             for (const block of row.blocks) {
                 const match =
-                    (hour >= block.startHour && hour <= block.endHour) || (cfg.doublePlot && hour >= block.startHour + 24 && hour <= block.endHour + 24);
+                    (hour >= block.startHour && hour <= block.endHour) || (cfg.doublePlot && hour >= block.startHour + baseHours && hour <= block.endHour + baseHours);
                 if (match) {
                     const info: Record<string, string> = {
                         date: row.date,
@@ -135,19 +143,44 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
             // Check if hovering over circadian overlay
             const circadianMap = new Map<string, CircadianDay>();
             for (const cd of circadian) circadianMap.set(cd.date, cd);
-            const cd = circadianMap.get(row.date);
+            // In tau mode, row.date may include time — extract just the date part for lookup
+            const rowDateKey = row.date.slice(0, 10);
+            const cd = circadianMap.get(rowDateKey);
             if (cd) {
-                let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
-                let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
-                const h = ((hour % 24) + 24) % 24;
-                const inOverlay = nightEnd < nightStart ? h >= nightStart || h <= nightEnd : h >= nightStart && h <= nightEnd;
-                if (inOverlay) {
-                    return {
-                        date: row.date,
-                        "circadian night": formatHour(nightStart) + " – " + formatHour(nightEnd),
-                        "local τ": cd.localTau.toFixed(2) + "h",
-                        confidence: cd.confidence
-                    };
+                if (tauMode && row.startMs != null) {
+                    // In tau mode, compute overlay position relative to row start
+                    const nightStartAbsH = ((cd.nightStartHour % 24) + 24) % 24;
+                    const nightEndAbsH = ((cd.nightEndHour % 24) + 24) % 24;
+                    const rowStartAbsH = (row.startMs % 86_400_000) / 3_600_000;
+                    let ns = nightStartAbsH - rowStartAbsH;
+                    let ne = nightEndAbsH - rowStartAbsH;
+                    // Wrap into [0, baseHours) approximately
+                    while (ns < -baseHours / 2) ns += 24;
+                    while (ns > baseHours + 12) ns -= 24;
+                    while (ne < ns) ne += 24;
+                    const h = hour % baseHours;
+                    const inOverlay = h >= ns && h <= ne;
+                    if (inOverlay) {
+                        return {
+                            date: row.date,
+                            "circadian night": formatHour(nightStartAbsH) + " – " + formatHour(nightEndAbsH),
+                            "local τ": cd.localTau.toFixed(2) + "h",
+                            confidence: cd.confidence
+                        };
+                    }
+                } else {
+                    let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
+                    let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
+                    const h = ((hour % 24) + 24) % 24;
+                    const inOverlay = nightEnd < nightStart ? h >= nightStart || h <= nightEnd : h >= nightStart && h <= nightEnd;
+                    if (inOverlay) {
+                        return {
+                            date: row.date,
+                            "circadian night": formatHour(nightStart) + " – " + formatHour(nightEnd),
+                            "local τ": cd.localTau.toFixed(2) + "h",
+                            confidence: cd.confidence
+                        };
+                    }
                 }
             }
 
@@ -201,8 +234,13 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
         ctx.font = "11px system-ui, sans-serif";
         ctx.textAlign = "center";
         for (let h = 0; h <= hoursPerRow; h += 6) {
-            const label = h % 24;
-            ctx.fillText(label.toString().padStart(2, "0"), xScale(h), plotTop - 8);
+            if (tauMode) {
+                // Relative offset labels: +0, +6, +12, ...
+                ctx.fillText("+" + h, xScale(h), plotTop - 8);
+            } else {
+                const label = h % 24;
+                ctx.fillText(label.toString().padStart(2, "0"), xScale(h), plotTop - 8);
+            }
         }
 
         // Draw circadian overlay
@@ -214,7 +252,9 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
 
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i]!;
-                const cd = circadianMap.get(row.date);
+                // In tau mode, row.date may include time — extract just the date part
+                const rowDateKey = row.date.slice(0, 10);
+                const cd = circadianMap.get(rowDateKey);
                 if (!cd) continue;
 
                 const y = plotTop + i * cfg.rowHeight;
@@ -223,25 +263,56 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                 const alpha = "confidenceScore" in cd ? 0.1 + (cd as { confidenceScore: number }).confidenceScore * 0.25 : 0.25;
                 ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
 
-                // Normalize night hours to [0, 24) range
-                let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
-                let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
+                if (tauMode && row.startMs != null) {
+                    // Tau mode: position night hours relative to row's start time
+                    const nightStartAbsH = ((cd.nightStartHour % 24) + 24) % 24;
+                    const nightEndAbsH = ((cd.nightEndHour % 24) + 24) % 24;
+                    const rowStartAbsH = (row.startMs % 86_400_000) / 3_600_000;
+                    const nightDur = ((nightEndAbsH - nightStartAbsH) % 24 + 24) % 24;
 
-                if (nightEnd < nightStart) {
-                    ctx.fillRect(xScale(nightStart), y, xScale(24) - xScale(nightStart), cfg.rowHeight);
-                    ctx.fillRect(xScale(0), y, xScale(nightEnd) - xScale(0), cfg.rowHeight);
+                    let ns = nightStartAbsH - rowStartAbsH;
+                    while (ns < -12) ns += 24;
+                    while (ns > baseHours + 12) ns -= 24;
+                    let ne = ns + nightDur;
+
+                    // Clip to row bounds [0, baseHours]
+                    const drawOverlaySegment = (start: number, end: number, offset: number) => {
+                        const s = Math.max(0, start) + offset;
+                        const e = Math.min(baseHours, end) + offset;
+                        if (e > s) {
+                            ctx.fillRect(xScale(s), y, xScale(e) - xScale(s), cfg.rowHeight);
+                        }
+                    };
+
+                    drawOverlaySegment(ns, ne, 0);
+                    // If night wraps before row start, it might appear at end of row
+                    if (ns < 0) drawOverlaySegment(ns + 24, ne + 24, 0);
+
+                    if (cfg.doublePlot) {
+                        drawOverlaySegment(ns, ne, baseHours);
+                        if (ns < 0) drawOverlaySegment(ns + 24, ne + 24, baseHours);
+                    }
                 } else {
-                    ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
-                }
+                    // Calendar mode: normalize night hours to [0, 24) range
+                    let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
+                    let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
 
-                if (cfg.doublePlot) {
-                    nightStart += 24;
-                    nightEnd += 24;
                     if (nightEnd < nightStart) {
-                        ctx.fillRect(xScale(nightStart), y, xScale(48) - xScale(nightStart), cfg.rowHeight);
-                        ctx.fillRect(xScale(24), y, xScale(nightEnd) - xScale(24), cfg.rowHeight);
+                        ctx.fillRect(xScale(nightStart), y, xScale(24) - xScale(nightStart), cfg.rowHeight);
+                        ctx.fillRect(xScale(0), y, xScale(nightEnd) - xScale(0), cfg.rowHeight);
                     } else {
                         ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
+                    }
+
+                    if (cfg.doublePlot) {
+                        nightStart += 24;
+                        nightEnd += 24;
+                        if (nightEnd < nightStart) {
+                            ctx.fillRect(xScale(nightStart), y, xScale(48) - xScale(nightStart), cfg.rowHeight);
+                            ctx.fillRect(xScale(24), y, xScale(nightEnd) - xScale(24), cfg.rowHeight);
+                        } else {
+                            ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
+                        }
                     }
                 }
             }
@@ -264,10 +335,10 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                         ctx.fillRect(xScale(bStart), y, Math.max(blockPixelWidth, 1), cfg.rowHeight - 0.5);
                     } else if (block.record.stageData && blockPixelWidth > 5) {
                         // v1.2: render per-interval stage coloring
-                        drawStageBlock(ctx, xScale, block.record.stageData, block.record.startTime, row.date, bStart, bEnd, y, cfg.rowHeight, hourOffset);
+                        drawStageBlock(ctx, xScale, block.record.stageData, block.record.startTime, row.date, bStart, bEnd, y, cfg.rowHeight, hourOffset, row.startMs);
                     } else if (block.record.minuteData && blockPixelWidth > 10) {
                         // v1: render per-minute coloring
-                        drawMinuteBlock(ctx, xScale, block.record.minuteData, block.record.startTime, row.date, bStart, bEnd, y, cfg.rowHeight);
+                        drawMinuteBlock(ctx, xScale, block.record.minuteData, block.record.startTime, row.date, bStart, bEnd, y, cfg.rowHeight, row.startMs);
                     } else {
                         // Solid fallback
                         ctx.fillStyle = block.record.stageData ? COLORS.light : COLORS.asleep;
@@ -276,7 +347,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                 };
 
                 drawBlock(0);
-                if (cfg.doublePlot) drawBlock(24);
+                if (cfg.doublePlot) drawBlock(baseHours);
             }
         }
 
@@ -314,42 +385,40 @@ function drawStageBlock(
     blockEndHour: number,
     y: number,
     rowHeight: number,
-    hourOffset: number
+    hourOffset: number,
+    rowStartMs?: number
 ) {
     if (blockEndHour <= blockStartHour) return;
     const blockDurationHours = blockEndHour - blockStartHour;
 
-    // Reconstruct the block's absolute time boundaries.
-    // blockStartHour (minus hourOffset) = hours from the row's local midnight.
-    // The row's local midnight can be derived: for the day containing this block,
-    // actogramData computed startHour = (max(sleepStart, dayMidnight) - dayMidnight) / 3600000.
-    // So blockAbsStartMs = dayMidnight + (blockStartHour - hourOffset) * 3600000.
-    // We derive dayMidnight from the record: the record start's local midnight, plus
-    // the day offset for blocks that fall on subsequent days.
-    const recordStartMs = recordStart.getTime();
-    const recordMidnight = new Date(recordStart);
-    recordMidnight.setHours(0, 0, 0, 0);
-    const recordMidnightMs = recordMidnight.getTime();
+    let blockAbsStartMs: number;
+    let blockAbsEndMs: number;
 
-    // Base block start hour (in local time, 0..24)
-    const localBlockStartH = blockStartHour - hourOffset;
-
-    // Record's local start hour
-    const recordLocalStartH = (recordStartMs - recordMidnightMs) / 3_600_000;
-
-    // Figure out which day's midnight this block belongs to.
-    // If localBlockStartH >= recordLocalStartH, same day as record start.
-    // If localBlockStartH < recordLocalStartH, block is on the next day (record spans midnight).
-    let dayMidnightMs: number;
-    if (localBlockStartH >= recordLocalStartH - 0.5) {
-        dayMidnightMs = recordMidnightMs;
+    if (rowStartMs != null) {
+        // Tau mode: row startMs is known, so absolute position is straightforward
+        const localBlockStartH = blockStartHour - hourOffset;
+        blockAbsStartMs = rowStartMs + localBlockStartH * 3_600_000;
+        blockAbsEndMs = blockAbsStartMs + blockDurationHours * 3_600_000;
     } else {
-        // Block is on next calendar day
-        dayMidnightMs = recordMidnightMs + 24 * 3_600_000;
-    }
+        // Calendar mode: reconstruct from midnight
+        const recordStartMs = recordStart.getTime();
+        const recordMidnight = new Date(recordStart);
+        recordMidnight.setHours(0, 0, 0, 0);
+        const recordMidnightMs = recordMidnight.getTime();
 
-    const blockAbsStartMs = dayMidnightMs + localBlockStartH * 3_600_000;
-    const blockAbsEndMs = blockAbsStartMs + blockDurationHours * 3_600_000;
+        const localBlockStartH = blockStartHour - hourOffset;
+        const recordLocalStartH = (recordStartMs - recordMidnightMs) / 3_600_000;
+
+        let dayMidnightMs: number;
+        if (localBlockStartH >= recordLocalStartH - 0.5) {
+            dayMidnightMs = recordMidnightMs;
+        } else {
+            dayMidnightMs = recordMidnightMs + 24 * 3_600_000;
+        }
+
+        blockAbsStartMs = dayMidnightMs + localBlockStartH * 3_600_000;
+        blockAbsEndMs = blockAbsStartMs + blockDurationHours * 3_600_000;
+    }
 
     for (const entry of stageData) {
         const entryStartMs = new Date(entry.dateTime).getTime();
@@ -381,9 +450,11 @@ function drawMinuteBlock(
     blockStartHour: number,
     blockEndHour: number,
     y: number,
-    rowHeight: number
+    rowHeight: number,
+    rowStartMs?: number
 ) {
-    const recordStartHour = (recordStart.getTime() - new Date(rowDate + "T00:00:00").getTime()) / 3_600_000;
+    const rowOriginMs = rowStartMs ?? new Date(rowDate.slice(0, 10) + "T00:00:00").getTime();
+    const recordStartHour = (recordStart.getTime() - rowOriginMs) / 3_600_000;
     const minuteOffset = Math.max(0, Math.round((blockStartHour - recordStartHour) * 60));
     const blockMinutes = (blockEndHour - blockStartHour) * 60;
     const minuteCount = Math.round(blockMinutes);
