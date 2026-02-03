@@ -2,7 +2,7 @@
 
 https://n24.aozora.one/
 
-![screenshot](https://github.com/Aozora7/fitbit-n24/raw/master/images/Screenshot-2026-02-01.png)
+![screenshot](https://github.com/Aozora7/fitbit-n24/raw/master/images/screenshot.png)
 
 A client-side React application that visualizes Fitbit sleep data in a way that's helpful for people with non-24-hour sleep-wake disorder (N24). The main feature is an actogram with sleep stage data, and an overlay that displays estimated circadian night on each day, calculated based on the entire visible data set.
 
@@ -13,8 +13,8 @@ In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/f
 - **Actogram visualization**: Canvas-based raster plot with one row per calendar day, newest first; supports adjustable row width (τ) so rows can match a non-24-hour circadian period and sleep blocks align vertically
 - **Periodogram visualization**: Provides frequency analysis of circadian rhythm in the data
 - **Sleep stage coloring**: Deep (dark blue), light (blue), REM (cyan), wake (red) from Fitbit's v1.2 stage data; falls back to asleep/restless/awake coloring for v1 classic data
-- **Circadian night overlay**: Purple band with confidence-based opacity — more opaque where data is dense, transparent where sparse
-- **OAuth PKCE authentication**: Sign in with Fitbit directly from the browser, no server needed
+- **Circadian night overlay**: Estimates circadian night based on sleep data and displays it as purple overlay on the actogram.
+- **Circadian night forecast**: Predict circadian night for 1, 7, or 30 days ahead of the latest sleep record using the most recent circadian trend.
 - **Progressive data loading**: Actogram renders and updates as each page of API data arrives (100 records per page, which is the maximum Fitbit API allows)
 - **Import/export**: Load data from JSON files or export fetched API data for offline use
 - **Adjustable row width (τ)**: Set the actogram row length to the estimated circadian period (or any value between 23–26h) so that sleep records line up vertically; defaults to 24h calendar days
