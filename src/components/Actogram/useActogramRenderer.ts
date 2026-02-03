@@ -165,7 +165,8 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                             date: row.date,
                             "circadian night": formatHour(nightStartAbsH) + " – " + formatHour(nightEndAbsH),
                             "local τ": cd.localTau.toFixed(2) + "h",
-                            confidence: cd.confidence
+                            confidence: cd.confidence,
+                            ...(cd.isForecast ? { type: "predicted" } : {})
                         };
                     }
                 } else {
@@ -178,7 +179,8 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                             date: row.date,
                             "circadian night": formatHour(nightStart) + " – " + formatHour(nightEnd),
                             "local τ": cd.localTau.toFixed(2) + "h",
-                            confidence: cd.confidence
+                            confidence: cd.confidence,
+                            ...(cd.isForecast ? { type: "predicted" } : {})
                         };
                     }
                 }
@@ -261,7 +263,9 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
 
                 // Alpha based on confidence score
                 const alpha = "confidenceScore" in cd ? 0.1 + (cd as { confidenceScore: number }).confidenceScore * 0.25 : 0.25;
-                ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
+                ctx.fillStyle = cd.isForecast
+                    ? `rgba(251, 191, 36, ${alpha})`   // orange/amber for forecast
+                    : `rgba(168, 85, 247, ${alpha})`;   // purple for historical
 
                 if (tauMode && row.startMs != null) {
                     // Tau mode: position night hours relative to row's start time

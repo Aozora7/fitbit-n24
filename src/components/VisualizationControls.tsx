@@ -16,7 +16,9 @@ export default function VisualizationControls() {
         circadianAnalysis,
         effectiveRowHeight,
         maxRowHeight,
-        setRowHeight
+        setRowHeight,
+        forecastDays,
+        setForecastDays
     } = useAppContext();
 
     return (
@@ -83,6 +85,20 @@ export default function VisualizationControls() {
                     </button>
                 )}
             </label>
+            <div className="flex items-center gap-2 text-sm text-gray-300">
+                Forecast days:
+                {[1, 7, 30].map(v => (
+                    <button
+                        key={v}
+                        onClick={() => setForecastDays(v)}
+                        className={`rounded rounded-base  h-6 px-2 py-0.5 text-xs ${
+                            forecastDays === v ? "bg-indigo-600 text-white" : "bg-gray-600 text-gray-300 hover:bg-gray-500"
+                        }`}
+                    >
+                        {v}
+                    </button>
+                ))}
+            </div>
         </div>
     );
 }

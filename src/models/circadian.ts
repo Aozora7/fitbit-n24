@@ -12,6 +12,7 @@ export interface CircadianDay {
     localTau: number;
     localDrift: number;
     anchorSleep?: SleepRecord;
+    isForecast: boolean;
 }
 
 export interface AnchorPoint {
@@ -399,15 +400,40 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
 
     const totalDays = lastDay + extraDays;
 
+    // Compute edge fit for forecast extrapolation: freeze the regression
+    // from the last data day so forecast days extrapolate smoothly instead
+    // of re-evaluating a window that drifts away from real data.
+    let edgeResult = evaluateWindow(anchors, lastDay, WINDOW_HALF);
+    if (edgeResult.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
+        edgeResult = evaluateWindow(anchors, lastDay, Math.round(WINDOW_HALF * 1.5));
+        if (edgeResult.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
+            edgeResult = evaluateWindow(anchors, lastDay, MAX_WINDOW_HALF);
+        }
+    }
+
+    // Base confidence for the edge fit (used to compute decaying forecast confidence)
+    const edgeExpected = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
+    const edgeBaseConf = 0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected)
+        + 0.3 * edgeResult.avgQuality
+        + 0.3 * (1 - Math.min(1, edgeResult.residualMAD / 3));
+
     for (let d = 0; d <= totalDays; d++) {
         const dayDate = new Date(firstDateMs + d * 86_400_000);
         const dateStr = dayDate.getFullYear() + "-" + String(dayDate.getMonth() + 1).padStart(2, "0") + "-" + String(dayDate.getDate()).padStart(2, "0");
 
-        let result = evaluateWindow(anchors, d, WINDOW_HALF);
-        if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
-            result = evaluateWindow(anchors, d, Math.round(WINDOW_HALF * 1.5));
+        const isForecast = d > lastDay;
+        let result;
+
+        if (isForecast) {
+            // Use frozen edge regression for smooth extrapolation
+            result = edgeResult;
+        } else {
+            result = evaluateWindow(anchors, d, WINDOW_HALF);
             if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
-                result = evaluateWindow(anchors, d, MAX_WINDOW_HALF);
+                result = evaluateWindow(anchors, d, Math.round(WINDOW_HALF * 1.5));
+                if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
+                    result = evaluateWindow(anchors, d, MAX_WINDOW_HALF);
+                }
             }
         }
 
@@ -418,11 +444,19 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
         const halfDur = result.avgDuration / 2;
 
         // Confidence
-        const expected = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
-        const density = Math.min(1, result.pointsUsed / expected);
-        const quality = result.avgQuality;
-        const spread = 1 - Math.min(1, result.residualMAD / 3);
-        const confScore = 0.4 * density + 0.3 * quality + 0.3 * spread;
+        let confScore: number;
+        if (isForecast) {
+            // Decay confidence with distance from last data day
+            // ~0.5 at 7 days, ~0.25 at 14 days, ~0.05 at 30 days
+            const distFromEdge = d - lastDay;
+            confScore = edgeBaseConf * Math.exp(-0.1 * distFromEdge);
+        } else {
+            const expected = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
+            const density = Math.min(1, result.pointsUsed / expected);
+            const quality = result.avgQuality;
+            const spread = 1 - Math.min(1, result.residualMAD / 3);
+            confScore = 0.4 * density + 0.3 * quality + 0.3 * spread;
+        }
 
         days.push({
             date: dateStr,
@@ -432,16 +466,19 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
             confidence: confScore >= 0.6 ? "high" : confScore >= 0.3 ? "medium" : "low",
             localTau,
             localDrift: result.slope,
-            anchorSleep: bestAnchorByDate.get(dateStr)?.record
+            anchorSleep: bestAnchorByDate.get(dateStr)?.record,
+            isForecast,
         });
 
         tauSum += localTau * confScore;
         tauWSum += confScore;
 
-        // Collect residuals for stats
-        for (const a of anchors) {
-            if (Math.abs(a.dayNumber - d) < 0.5) {
-                allResiduals.push(Math.abs(a.midpointHour - predictedMid));
+        // Collect residuals for stats (only for data days)
+        if (!isForecast) {
+            for (const a of anchors) {
+                if (Math.abs(a.dayNumber - d) < 0.5) {
+                    allResiduals.push(Math.abs(a.midpointHour - predictedMid));
+                }
             }
         }
     }

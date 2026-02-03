@@ -22,6 +22,7 @@ export interface AppState {
     filteredRecords: SleepRecord[];
     circadianAnalysis: CircadianAnalysis;
     forecastDays: number;
+    setForecastDays: (v: number) => void;
     totalDays: number;
     firstDateStr: string;
     daySpan: number;
@@ -146,11 +147,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setFilterEnd(end);
     }, []);
 
-    const forecastDays = useMemo(() => {
+    const [overrideForecastDays, setOverrideForecastDays] = useState<number | null>(null);
+
+    const calculatedForecastDays = useMemo(() => {
         if (filteredRecords.length === 0) return 0;
         const diffMs = Date.now() - filteredRecords[filteredRecords.length - 1]!.endTime.getTime();
         return diffMs / 86_400_000 < 2 ? 1 : 0;
     }, [filteredRecords]);
+
+    const forecastDays = overrideForecastDays ?? calculatedForecastDays;
 
     const circadianAnalysis = useMemo(() => analyzeCircadian(filteredRecords, forecastDays), [filteredRecords, forecastDays]);
 
@@ -194,6 +199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             filteredRecords,
             circadianAnalysis,
             forecastDays,
+            setForecastDays: setOverrideForecastDays,
             totalDays,
             firstDateStr,
             daySpan,
