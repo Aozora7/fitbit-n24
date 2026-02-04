@@ -10,8 +10,8 @@ import type { SleepRecord } from "./api/types";
 export interface ScheduleEntry {
     id: string;
     startTime: string; // "HH:mm"
-    endTime: string;   // "HH:mm"
-    days: boolean[];   // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+    endTime: string; // "HH:mm"
+    days: boolean[]; // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
 }
 
 /** Max canvas height in pixels (conservative cross-browser limit) */
@@ -32,6 +32,7 @@ export interface AppState {
     circadianAnalysis: CircadianAnalysis;
     forecastDays: number;
     setForecastDays: (v: number) => void;
+    forecastDisabled: boolean;
     totalDays: number;
     firstDateStr: string;
     daySpan: number;
@@ -84,13 +85,20 @@ function usePersistedState<T>(key: string, defaultValue: T) {
             return defaultValue;
         }
     });
-    const setAndPersist = useCallback((v: T | ((prev: T) => T)) => {
-        setValue(prev => {
-            const next = typeof v === "function" ? (v as (prev: T) => T)(prev) : v;
-            try { localStorage.setItem(key, JSON.stringify(next)); } catch { /* quota exceeded */ }
-            return next;
-        });
-    }, [key]);
+    const setAndPersist = useCallback(
+        (v: T | ((prev: T) => T)) => {
+            setValue(prev => {
+                const next = typeof v === "function" ? (v as (prev: T) => T)(prev) : v;
+                try {
+                    localStorage.setItem(key, JSON.stringify(next));
+                } catch {
+                    /* quota exceeded */
+                }
+                return next;
+            });
+        },
+        [key]
+    );
     return [value, setAndPersist] as const;
 }
 
@@ -112,6 +120,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [showSchedule, setShowSchedule] = usePersistedState("viz.showSchedule", false);
     const [showScheduleEditor, setShowScheduleEditor] = useState(false);
     const [scheduleEntries, setScheduleEntries] = usePersistedState<ScheduleEntry[]>("viz.scheduleEntries", []);
+
+    useEffect(() => {
+        if (showSchedule && !showScheduleEditor && !scheduleEntries.length) {
+            setShowScheduleEditor(true);
+        }
+    }, [showSchedule]);
 
     // Auto-import dev data file if present (development convenience)
     const autoImportedRef = useRef(false);
@@ -190,17 +204,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setFilterEnd(end);
     }, []);
 
-    const [overrideForecastDays, setOverrideForecastDays] = usePersistedState<number | null>("viz.forecastDays", null);
+    const [forecastDays, setForecastDays] = usePersistedState<number>("viz.forecastDays", 0);
 
-    const calculatedForecastDays = useMemo(() => {
-        if (filteredRecords.length === 0) return 0;
-        const diffMs = Date.now() - filteredRecords[filteredRecords.length - 1]!.endTime.getTime();
-        return diffMs / 86_400_000 < 2 ? 1 : 0;
-    }, [filteredRecords]);
+    // Disable forecast when the user has filtered out the end of their data
+    const forecastDisabled = filterEnd < totalDays;
+    const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
 
-    const forecastDays = overrideForecastDays ?? calculatedForecastDays;
-
-    const circadianAnalysis = useMemo(() => analyzeCircadian(filteredRecords, forecastDays), [filteredRecords, forecastDays]);
+    const circadianAnalysis = useMemo(() => analyzeCircadian(filteredRecords, effectiveForecastDays), [filteredRecords, effectiveForecastDays]);
 
     const daySpan = useMemo(() => {
         if (filteredRecords.length === 0) return 0;
@@ -242,7 +252,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             filteredRecords,
             circadianAnalysis,
             forecastDays,
-            setForecastDays: setOverrideForecastDays,
+            setForecastDays,
+            forecastDisabled,
             totalDays,
             firstDateStr,
             daySpan,
@@ -271,7 +282,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setShowScheduleEditor,
             scheduleEntries,
             setScheduleEntries,
-            handleFetch,
+            handleFetch
         }),
         [
             data,
@@ -280,6 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             filteredRecords,
             circadianAnalysis,
             forecastDays,
+            forecastDisabled,
             totalDays,
             firstDateStr,
             daySpan,
@@ -299,7 +311,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             showSchedule,
             showScheduleEditor,
             scheduleEntries,
-            handleFetch,
+            handleFetch
         ]
     );
 

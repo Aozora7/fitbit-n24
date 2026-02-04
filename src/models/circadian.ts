@@ -292,7 +292,7 @@ function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number
 /**
  * @param extraDays - Number of days to forecast beyond the data range (for circadian overlay prediction)
  */
-export function analyzeCircadian(records: SleepRecord[], extraDays = 0): CircadianAnalysis {
+export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0): CircadianAnalysis {
     const empty: CircadianAnalysis = {
         globalTau: 24,
         globalDailyDrift: 0,
@@ -413,9 +413,8 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
 
     // Base confidence for the edge fit (used to compute decaying forecast confidence)
     const edgeExpected = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
-    const edgeBaseConf = 0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected)
-        + 0.3 * edgeResult.avgQuality
-        + 0.3 * (1 - Math.min(1, edgeResult.residualMAD / 3));
+    const edgeBaseConf =
+        0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected) + 0.3 * edgeResult.avgQuality + 0.3 * (1 - Math.min(1, edgeResult.residualMAD / 3));
 
     for (let d = 0; d <= totalDays; d++) {
         const dayDate = new Date(firstDateMs + d * 86_400_000);
@@ -467,7 +466,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays = 0): Circadi
             localTau,
             localDrift: result.slope,
             anchorSleep: bestAnchorByDate.get(dateStr)?.record,
-            isForecast,
+            isForecast
         });
 
         tauSum += localTau * confScore;
