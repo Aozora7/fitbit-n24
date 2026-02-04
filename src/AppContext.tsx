@@ -56,19 +56,40 @@ export interface AppState {
 
 const AppContext = createContext<AppState | null>(null);
 
+// ── Persisted state helper ───────────────────────────────────────
+
+function usePersistedState<T>(key: string, defaultValue: T) {
+    const [value, setValue] = useState<T>(() => {
+        try {
+            const stored = localStorage.getItem(key);
+            return stored !== null ? (JSON.parse(stored) as T) : defaultValue;
+        } catch {
+            return defaultValue;
+        }
+    });
+    const setAndPersist = useCallback((v: T | ((prev: T) => T)) => {
+        setValue(prev => {
+            const next = typeof v === "function" ? (v as (prev: T) => T)(prev) : v;
+            try { localStorage.setItem(key, JSON.stringify(next)); } catch { /* quota exceeded */ }
+            return next;
+        });
+    }, [key]);
+    return [value, setAndPersist] as const;
+}
+
 // ── Provider ────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: ReactNode }) {
     const data = useFitbitData();
     const auth = useAuth();
 
-    // Visualization settings
-    const [doublePlot, setDoublePlot] = useState(false);
-    const [rowHeight, setRowHeight] = useState(5);
-    const [showCircadian, setShowCircadian] = useState(true);
-    const [showPeriodogram, setShowPeriodogram] = useState(true);
-    const [colorMode, setColorMode] = useState<ColorMode>("stages");
-    const [tauHours, setTauHours] = useState(24);
+    // Visualization settings (persisted to localStorage)
+    const [doublePlot, setDoublePlot] = usePersistedState("viz.doublePlot", false);
+    const [rowHeight, setRowHeight] = usePersistedState("viz.rowHeight", 5);
+    const [showCircadian, setShowCircadian] = usePersistedState("viz.showCircadian", true);
+    const [showPeriodogram, setShowPeriodogram] = usePersistedState("viz.showPeriodogram", true);
+    const [colorMode, setColorMode] = usePersistedState<ColorMode>("viz.colorMode", "stages");
+    const [tauHours, setTauHours] = usePersistedState("viz.tauHours", 24);
 
     // Auto-import dev data file if present (development convenience)
     const autoImportedRef = useRef(false);
@@ -147,7 +168,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setFilterEnd(end);
     }, []);
 
-    const [overrideForecastDays, setOverrideForecastDays] = useState<number | null>(null);
+    const [overrideForecastDays, setOverrideForecastDays] = usePersistedState<number | null>("viz.forecastDays", null);
 
     const calculatedForecastDays = useMemo(() => {
         if (filteredRecords.length === 0) return 0;
