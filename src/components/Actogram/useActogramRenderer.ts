@@ -4,6 +4,7 @@ import type { ActogramRow } from "../../models/actogramData";
 import { type CircadianDay } from "../../models/circadian";
 import { computeQualityScore } from "../../models/computeQualityScore";
 import type { SleepLevelEntry } from "../../api/types";
+import type { ScheduleEntry } from "../../AppContext";
 
 export type ColorMode = "stages" | "quality";
 
@@ -16,6 +17,8 @@ export interface ActogramConfig {
     topMargin: number;
     rightMargin: number;
     bottomMargin: number;
+    showSchedule?: boolean;
+    scheduleEntries?: ScheduleEntry[];
 }
 
 const DEFAULT_CONFIG: ActogramConfig = {
@@ -316,6 +319,126 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                             ctx.fillRect(xScale(24), y, xScale(nightEnd) - xScale(24), cfg.rowHeight);
                         } else {
                             ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw schedule overlay
+        if (cfg.showSchedule && cfg.scheduleEntries && cfg.scheduleEntries.length > 0) {
+            ctx.fillStyle = "rgba(34, 197, 94, 0.2)"; // green with alpha
+
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i]!;
+                const y = plotTop + i * cfg.rowHeight;
+
+                if (tauMode && row.startMs != null) {
+                    // Absolute intersection logic for drifting rows
+                    const rowStartMs = row.startMs;
+                    const rowEndMs = rowStartMs + baseHours * 3_600_000;
+
+                    // Which calendar days does this row touch?
+                    // rowStartMs is in local time but treated as absolute millisecond timestamp
+                    const startDate = new Date(rowStartMs);
+                    const endDate = new Date(rowEndMs);
+                    
+                    // Iterate from start day to end day (inclusive)
+                    const d = new Date(startDate);
+                    d.setHours(0, 0, 0, 0);
+                    
+                    while (d.getTime() <= endDate.getTime()) {
+                        const dayMs = d.getTime();
+                        const jsDay = d.getDay(); // 0=Sun
+                        const dayIndex = jsDay === 0 ? 6 : jsDay - 1; // 0=Mon
+
+                        for (const entry of cfg.scheduleEntries) {
+                            if (!entry.days[dayIndex]) continue;
+
+                            // Parse start/end
+                            const startParts = entry.startTime.split(":");
+                            const endParts = entry.endTime.split(":");
+                            const sH = (parseInt(startParts[0] ?? "0", 10)) + (parseInt(startParts[1] ?? "0", 10)) / 60;
+                            const eH = (parseInt(endParts[0] ?? "0", 10)) + (parseInt(endParts[1] ?? "0", 10)) / 60;
+
+                            const drawAbsBlock = (absStart: number, absEnd: number) => {
+                                // Intersection with row
+                                const iStart = Math.max(absStart, rowStartMs);
+                                const iEnd = Math.min(absEnd, rowEndMs);
+
+                                if (iEnd > iStart) {
+                                    const xStart = (iStart - rowStartMs) / 3_600_000;
+                                    const xEnd = (iEnd - rowStartMs) / 3_600_000;
+                                    ctx.fillRect(xScale(xStart), y, xScale(xEnd) - xScale(xStart), cfg.rowHeight);
+                                    if (cfg.doublePlot) {
+                                        ctx.fillRect(xScale(xStart + baseHours), y, xScale(xEnd) - xScale(xStart), cfg.rowHeight);
+                                    }
+                                }
+                            };
+
+                            if (eH <= sH) {
+                                // Crosses midnight
+                                const startMs = dayMs + sH * 3_600_000;
+                                const endMs = dayMs + 24 * 3_600_000 + eH * 3_600_000;
+                                // This spans from startMs -> midnight -> endMs next day
+                                // But simpler: it is union of [startMs, dayEnd] and [dayMs, dayMs + eH] ??
+                                // Actually, for recurring daily schedule:
+                                // "22:00 to 06:00" on Monday means:
+                                // Mon 22:00 -> Tue 06:00
+                                // So strictly speaking, it belongs to the "start day".
+                                // We handle valid segments:
+                                drawAbsBlock(startMs, dayMs + 24 * 3_600_000); // 22:00 -> 24:00
+                                drawAbsBlock(dayMs + 24 * 3_600_000, endMs);   // 24:00 -> 06:00 (next day)
+                            } else {
+                                const startMs = dayMs + sH * 3_600_000;
+                                const endMs = dayMs + eH * 3_600_000;
+                                drawAbsBlock(startMs, endMs);
+                            }
+                        }
+                        
+                        // Next day
+                        d.setDate(d.getDate() + 1);
+                    }
+
+                } else {
+                    // Standard Calendar Mode Logic (optimized)
+                    // Parse date to get day of week (0 = Sunday, we need Mon = 0)
+                    const dateStr = row.date.slice(0, 10);
+                    const dateObj = new Date(dateStr + "T12:00:00");
+                    const jsDay = dateObj.getDay(); // 0 = Sun, 1 = Mon, ... 6 = Sat
+                    const dayIndex = jsDay === 0 ? 6 : jsDay - 1; // Convert to Mon = 0, Sun = 6
+
+                    for (const entry of cfg.scheduleEntries) {
+                        if (!entry.days[dayIndex]) continue;
+
+                        // Parse start/end times to hours
+                        const startParts = entry.startTime.split(":");
+                        const endParts = entry.endTime.split(":");
+                        const startHour = (parseInt(startParts[0] ?? "0", 10)) + (parseInt(startParts[1] ?? "0", 10)) / 60;
+                        const endHour = (parseInt(endParts[0] ?? "0", 10)) + (parseInt(endParts[1] ?? "0", 10)) / 60;
+
+                        // Helper to draw overlay segment with clipping
+                        const drawSegment = (s: number, e: number, offset: number) => {
+                            const start = Math.max(0, s) + offset;
+                            const end = Math.min(24, e) + offset;
+                            if (end > start) {
+                                ctx.fillRect(xScale(start), y, xScale(end) - xScale(start), cfg.rowHeight);
+                            }
+                        };
+
+                        if (endHour <= startHour) {
+                            // Crosses midnight: draw from startHour to 24, and 0 to endHour
+                            drawSegment(startHour, 24, 0);
+                            drawSegment(0, endHour, 0);
+                            if (cfg.doublePlot) {
+                                drawSegment(startHour, 24, baseHours);
+                                drawSegment(0, endHour, baseHours);
+                            }
+                        } else {
+                            drawSegment(startHour, endHour, 0);
+                            if (cfg.doublePlot) {
+                                drawSegment(startHour, endHour, baseHours);
+                            }
                         }
                     }
                 }

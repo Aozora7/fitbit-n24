@@ -4,7 +4,7 @@ import { buildActogramRows, buildTauRows } from "../../models/actogramData";
 import { useAppContext } from "../../AppContext";
 
 export default function Actogram() {
-  const { filteredRecords, showCircadian, circadianAnalysis, doublePlot, effectiveRowHeight, colorMode, tauHours, forecastDays } = useAppContext();
+  const { filteredRecords, showCircadian, circadianAnalysis, doublePlot, effectiveRowHeight, colorMode, tauHours, forecastDays, showSchedule, scheduleEntries } = useAppContext();
 
   const rows = useMemo(
     () => tauHours !== 24
@@ -20,6 +20,8 @@ export default function Actogram() {
     rowHeight: effectiveRowHeight,
     colorMode,
     tauHours,
+    showSchedule,
+    scheduleEntries,
   });
 
   const [tooltip, setTooltip] = useState<{

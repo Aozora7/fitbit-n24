@@ -2,13 +2,14 @@ import { useAppContext } from "./AppContext";
 import Header from "./components/Header";
 import DataToolbar from "./components/DataToolbar";
 import VisualizationControls from "./components/VisualizationControls";
+import ScheduleEditor from "./components/ScheduleEditor";
 import Actogram from "./components/Actogram/Actogram";
 import Periodogram from "./components/Periodogram";
 import DateRangeSlider from "./components/DateRangeSlider";
 import Legend from "./components/Legend";
 
 export default function App() {
-    const { data } = useAppContext();
+    const { data, showScheduleEditor } = useAppContext();
 
     if (data.loading) {
         return (
@@ -26,6 +27,7 @@ export default function App() {
             {data.records.length > 0 && (
                 <>
                     <VisualizationControls />
+                    {showScheduleEditor && <ScheduleEditor />}
 
                     <div className="mx-auto max-w-5xl">
                         <DateRangeSlider />

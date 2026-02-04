@@ -5,6 +5,15 @@ import { analyzeCircadian, type CircadianAnalysis } from "./models/circadian";
 import type { ColorMode } from "./components/Actogram/useActogramRenderer";
 import type { SleepRecord } from "./api/types";
 
+// ── Schedule types ──────────────────────────────────────────────
+
+export interface ScheduleEntry {
+    id: string;
+    startTime: string; // "HH:mm"
+    endTime: string;   // "HH:mm"
+    days: boolean[];   // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+}
+
 /** Max canvas height in pixels (conservative cross-browser limit) */
 const MAX_CANVAS_HEIGHT = 32_768;
 /** Fixed margins in the actogram renderer (top + bottom) */
@@ -50,6 +59,14 @@ export interface AppState {
     filterEnd: number;
     handleFilterChange: (start: number, end: number) => void;
 
+    // Schedule overlay
+    showSchedule: boolean;
+    setShowSchedule: (v: boolean) => void;
+    showScheduleEditor: boolean;
+    setShowScheduleEditor: (v: boolean) => void;
+    scheduleEntries: ScheduleEntry[];
+    setScheduleEntries: (v: ScheduleEntry[] | ((prev: ScheduleEntry[]) => ScheduleEntry[])) => void;
+
     // Actions
     handleFetch: () => void;
 }
@@ -90,6 +107,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [showPeriodogram, setShowPeriodogram] = usePersistedState("viz.showPeriodogram", true);
     const [colorMode, setColorMode] = usePersistedState<ColorMode>("viz.colorMode", "stages");
     const [tauHours, setTauHours] = usePersistedState("viz.tauHours", 24);
+
+    // Schedule overlay (persisted to localStorage)
+    const [showSchedule, setShowSchedule] = usePersistedState("viz.showSchedule", false);
+    const [showScheduleEditor, setShowScheduleEditor] = useState(false);
+    const [scheduleEntries, setScheduleEntries] = usePersistedState<ScheduleEntry[]>("viz.scheduleEntries", []);
 
     // Auto-import dev data file if present (development convenience)
     const autoImportedRef = useRef(false);
@@ -243,6 +265,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
             filterStart,
             filterEnd,
             handleFilterChange,
+            showSchedule,
+            setShowSchedule,
+            showScheduleEditor,
+            setShowScheduleEditor,
+            scheduleEntries,
+            setScheduleEntries,
             handleFetch,
         }),
         [
@@ -268,6 +296,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             filterStart,
             filterEnd,
             handleFilterChange,
+            showSchedule,
+            showScheduleEditor,
+            scheduleEntries,
             handleFetch,
         ]
     );

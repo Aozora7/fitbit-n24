@@ -9,6 +9,10 @@ export default function VisualizationControls() {
         setShowCircadian,
         showPeriodogram,
         setShowPeriodogram,
+        showSchedule,
+        setShowSchedule,
+        showScheduleEditor,
+        setShowScheduleEditor,
         colorMode,
         setColorMode,
         tauHours,
@@ -30,8 +34,9 @@ export default function VisualizationControls() {
 
             <label className="flex items-center gap-2 text-sm text-gray-300">
                 <input type="checkbox" checked={showCircadian} onChange={e => setShowCircadian(e.target.checked)} className="rounded" />
-                Show circadian overlay
+                Circadian overlay
             </label>
+
             <label className="flex items-center gap-2 text-sm text-gray-300">
                 <input type="checkbox" checked={showPeriodogram} onChange={e => setShowPeriodogram(e.target.checked)} className="rounded" />
                 Periodogram
@@ -99,6 +104,20 @@ export default function VisualizationControls() {
                     </button>
                 ))}
             </div>
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input type="checkbox" checked={showSchedule} onChange={e => setShowSchedule(e.target.checked)} className="rounded" />
+                Show schedule overlay
+            </label>
+            {showSchedule && (
+                <button
+                    onClick={() => setShowScheduleEditor(!showScheduleEditor)}
+                    className={`rounded h-6 px-2 py-0.5 text-xs ${
+                        showScheduleEditor ? "bg-indigo-600 text-white" : "bg-gray-600 text-gray-300 hover:bg-gray-500"
+                    }`}
+                >
+                    {showScheduleEditor ? "Hide" : "Edit"} schedule
+                </button>
+            )}
         </div>
     );
 }
