@@ -2,7 +2,6 @@ import { useEffect, useRef, useCallback } from "react";
 import { scaleLinear } from "d3-scale";
 import type { ActogramRow } from "../../models/actogramData";
 import { type CircadianDay } from "../../models/circadian";
-import { computeQualityScore } from "../../models/computeQualityScore";
 import type { SleepLevelEntry } from "../../api/types";
 import type { ScheduleEntry } from "../../AppContext";
 
@@ -33,10 +32,6 @@ const DEFAULT_CONFIG: ActogramConfig = {
 };
 
 const COLORS = {
-    // v1 minuteData colors
-    asleep: "#3b82f6",
-    restless: "#eab308",
-    awake: "#ef4444",
     // v1.2 stage colors
     deep: "#1e40af",
     light: "#60a5fa",
@@ -47,20 +42,6 @@ const COLORS = {
     grid: "#334155",
     text: "#94a3b8"
 };
-
-/** Map v1 minuteData value to color */
-function minuteColor(value: string): string {
-    switch (value) {
-        case "1":
-            return COLORS.asleep;
-        case "2":
-            return COLORS.restless;
-        case "3":
-            return COLORS.awake;
-        default:
-            return COLORS.asleep;
-    }
-}
 
 /** Map v1.2 stage level to color */
 function stageColor(level: string): string {
@@ -139,7 +120,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                         const s = block.record.stages;
                         info.stages = `D:${s.deep} L:${s.light} R:${s.rem} W:${s.wake}min`;
                     }
-                    info.quality = (computeQualityScore(block.record) * 100).toFixed(0) + "%";
+                    info.quality = (block.record.sleepScore * 100).toFixed(0) + "%";
                     return info;
                 }
             }
@@ -458,17 +439,14 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
 
                     if (cfg.colorMode === "quality") {
                         // Quality mode: solid color based on quality score
-                        ctx.fillStyle = qualityColor(computeQualityScore(block.record));
+                        ctx.fillStyle = qualityColor(block.record.sleepScore);
                         ctx.fillRect(xScale(bStart), y, Math.max(blockPixelWidth, 1), cfg.rowHeight - 0.5);
                     } else if (block.record.stageData && blockPixelWidth > 5) {
                         // v1.2: render per-interval stage coloring
                         drawStageBlock(ctx, xScale, block.record.stageData, block.record.startTime, row.date, bStart, bEnd, y, cfg.rowHeight, hourOffset, row.startMs);
-                    } else if (block.record.minuteData && blockPixelWidth > 10) {
-                        // v1: render per-minute coloring
-                        drawMinuteBlock(ctx, xScale, block.record.minuteData, block.record.startTime, row.date, bStart, bEnd, y, cfg.rowHeight, row.startMs);
                     } else {
                         // Solid fallback
-                        ctx.fillStyle = block.record.stageData ? COLORS.light : COLORS.asleep;
+                        ctx.fillStyle = COLORS.light;
                         ctx.fillRect(xScale(bStart), y, Math.max(blockPixelWidth, 1), cfg.rowHeight - 0.5);
                     }
                 };
@@ -565,37 +543,3 @@ function drawStageBlock(
     }
 }
 
-/**
- * Draw a sleep block colored by v1 per-minute data.
- */
-function drawMinuteBlock(
-    ctx: CanvasRenderingContext2D,
-    xScale: (h: number) => number,
-    minuteData: { dateTime: string; value: string }[],
-    recordStart: Date,
-    rowDate: string,
-    blockStartHour: number,
-    blockEndHour: number,
-    y: number,
-    rowHeight: number,
-    rowStartMs?: number
-) {
-    const rowOriginMs = rowStartMs ?? new Date(rowDate.slice(0, 10) + "T00:00:00").getTime();
-    const recordStartHour = (recordStart.getTime() - rowOriginMs) / 3_600_000;
-    const minuteOffset = Math.max(0, Math.round((blockStartHour - recordStartHour) * 60));
-    const blockMinutes = (blockEndHour - blockStartHour) * 60;
-    const minuteCount = Math.round(blockMinutes);
-    const blockPixelWidth = xScale(blockEndHour) - xScale(blockStartHour);
-    const pixelPerMinute = blockPixelWidth / minuteCount;
-
-    for (let m = 0; m < minuteCount; m++) {
-        const dataIdx = minuteOffset + m;
-        const datum = minuteData[dataIdx];
-        if (!datum) continue;
-
-        ctx.fillStyle = minuteColor(datum.value);
-        const mx = xScale(blockStartHour + m / 60);
-        const mw = Math.max(pixelPerMinute, 0.5);
-        ctx.fillRect(mx, y, mw, rowHeight - 0.5);
-    }
-}

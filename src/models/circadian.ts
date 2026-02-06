@@ -1,5 +1,4 @@
 import type { SleepRecord } from "../api/types";
-import { computeQualityScore } from "./computeQualityScore";
 
 // ─── Public interfaces ─────────────────────────────────────────────
 
@@ -68,7 +67,7 @@ interface AnchorCandidate {
 }
 
 function classifyAnchor(record: SleepRecord): AnchorCandidate | null {
-    const quality = computeQualityScore(record);
+    const quality = record.sleepScore;
     const dur = record.durationHours;
 
     let tier: AnchorTier;

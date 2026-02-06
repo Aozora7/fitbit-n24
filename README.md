@@ -66,7 +66,6 @@ The app starts empty. You can:
 Supported import formats:
 
 - Fitbit API v1.2 response: `{ "sleep": [...] }` or array of pages
-- Fitbit API v1 response: array of pages with `minuteData`
 - Previously exported data from this app
 
 ## Project structure

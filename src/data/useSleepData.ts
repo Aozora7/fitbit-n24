@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { SleepRecord, RawSleepRecordV12 } from "../api/types";
+import { calculateSleepScore } from "../models/calculateSleepScore";
 import { loadLocalData } from "./loadLocalData";
 
 interface SleepDataState {
@@ -27,6 +28,7 @@ function parseV12(raw: RawSleepRecordV12): SleepRecord {
     minutesAsleep: raw.minutesAsleep,
     minutesAwake: raw.minutesAwake,
     isMainSleep: raw.isMainSleep,
+    sleepScore: calculateSleepScore(raw),
   };
 
   if (raw.levels) {

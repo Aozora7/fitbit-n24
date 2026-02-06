@@ -1,24 +1,8 @@
 import type {
-  RawSleepRecordV1,
   RawSleepRecordV12,
   SleepRecord,
 } from "../api/types";
-
-function parseV1Record(raw: RawSleepRecordV1): SleepRecord {
-  return {
-    logId: raw.logId,
-    dateOfSleep: raw.dateOfSleep,
-    startTime: new Date(raw.startTime),
-    endTime: new Date(raw.endTime),
-    durationMs: raw.duration,
-    durationHours: raw.duration / 3_600_000,
-    efficiency: raw.efficiency,
-    minutesAsleep: raw.minutesAsleep,
-    minutesAwake: raw.minutesAwake,
-    isMainSleep: true, // v1 doesn't have this field; assume true
-    minuteData: raw.minuteData,
-  };
-}
+import { calculateSleepScore } from "../models/calculateSleepScore";
 
 function parseV12Record(raw: RawSleepRecordV12): SleepRecord {
   const record: SleepRecord = {
@@ -32,6 +16,7 @@ function parseV12Record(raw: RawSleepRecordV12): SleepRecord {
     minutesAsleep: raw.minutesAsleep,
     minutesAwake: raw.minutesAwake,
     isMainSleep: raw.isMainSleep,
+    sleepScore: calculateSleepScore(raw),
   };
 
   if (raw.levels) {
@@ -70,14 +55,14 @@ function parseExportedRecord(raw: Record<string, unknown>): SleepRecord {
     minutesAsleep: raw.minutesAsleep as number,
     minutesAwake: raw.minutesAwake as number,
     isMainSleep: (raw.isMainSleep as boolean) ?? true,
+    sleepScore: (raw.sleepScore as number) ?? 0,
     stages: raw.stages as SleepRecord["stages"],
     stageData: raw.stageData as SleepRecord["stageData"],
-    minuteData: raw.minuteData as SleepRecord["minuteData"],
   };
 }
 
 /**
- * Detect whether a raw record is our internal export, v1, or v1.2 format and parse accordingly.
+ * Detect whether a raw record is our internal export or v1.2 format and parse accordingly.
  */
 function parseAnyRecord(raw: Record<string, unknown>): SleepRecord {
   // Our own exported format uses "durationMs" instead of "duration"
@@ -87,12 +72,11 @@ function parseAnyRecord(raw: Record<string, unknown>): SleepRecord {
   if ("levels" in raw || "type" in raw) {
     return parseV12Record(raw as unknown as RawSleepRecordV12);
   }
-  return parseV1Record(raw as unknown as RawSleepRecordV1);
+  throw new Error("Unrecognized sleep record format: expected v1.2 (stages) data");
 }
 
 /**
  * Load sleep data from a local JSON file. Handles multiple formats:
- * - v1 multi-page: [ { sleep: [...] }, { sleep: [...] }, ... ]
  * - v1.2 single-page: { sleep: [...], pagination: {...} }
  * - v1.2 multi-page: [ { sleep: [...], pagination: {...} }, ... ]
  * - Flat array of records: [ { dateOfSleep, ... }, ... ]

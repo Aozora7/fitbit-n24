@@ -6,7 +6,7 @@ export interface SleepBlock {
   startHour: number;
   /** Fractional hour end within the row (0 to rowWidth) */
   endHour: number;
-  /** Original record reference (carries minuteData or stageData) */
+  /** Original record reference (carries stageData) */
   record: SleepRecord;
 }
 
