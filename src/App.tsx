@@ -23,12 +23,10 @@ export default function App() {
         <div className="min-h-screen p-4">
             <Header />
             <DataToolbar />
-
+            <VisualizationControls />
+            {showScheduleEditor && <ScheduleEditor />}
             {data.records.length > 0 && (
                 <>
-                    <VisualizationControls />
-                    {showScheduleEditor && <ScheduleEditor />}
-
                     <div className="mx-auto max-w-5xl">
                         <DateRangeSlider />
                         <Periodogram />

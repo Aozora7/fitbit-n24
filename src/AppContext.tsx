@@ -135,7 +135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             autoImportedRef.current = true;
             fetch("/dev-data/auto-import.json")
                 .then(async res => {
-                    if (res.ok) {
+                    if (res.ok && res.headers.get("content-type")?.includes("application/json")) {
                         const blob = await res.blob();
                         const file = new File([blob], "auto-import.json", { type: "application/json" });
                         await data.importFromFile(file);
