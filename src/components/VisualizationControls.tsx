@@ -119,68 +119,95 @@ export default function VisualizationControls() {
         forecastDisabled
     } = useAppContext();
 
+    const [collapsed, setCollapsed] = useState(false);
+
     return (
         <div className="mx-auto mb-4 max-w-5xl rounded-lg border border-slate-700/50 bg-slate-800/60 px-3 py-2">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                {/* ── Display ── */}
-                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Display</span>
-                <Toggle checked={doublePlot} onChange={setDoublePlot} label="Double plot" />
-                <Toggle checked={showCircadian} onChange={setShowCircadian} label="Circadian overlay" />
-                <Toggle checked={showPeriodogram} onChange={setShowPeriodogram} label="Periodogram" />
-                <Toggle checked={showSchedule} onChange={setShowSchedule} label="Schedule overlay" />
-                {showSchedule && <Toggle checked={showScheduleEditor} onChange={setShowScheduleEditor} label="Edit schedule" />}
+                {!collapsed && (
+                    <>
+                        {/* ── Display ── */}
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Display</span>
+                        <Toggle checked={doublePlot} onChange={setDoublePlot} label="Double plot" />
+                        <Toggle checked={showCircadian} onChange={setShowCircadian} label="Circadian overlay" />
+                        <Toggle checked={showPeriodogram} onChange={setShowPeriodogram} label="Periodogram" />
+                        <Toggle checked={showSchedule} onChange={setShowSchedule} label="Schedule overlay" />
+                        {showSchedule && <Toggle checked={showScheduleEditor} onChange={setShowScheduleEditor} label="Edit schedule" />}
 
-                {/* ── Divider ── */}
-                <div className="hidden h-6 border-l border-slate-700/50 lg:block" />
-                <div className="w-full border-t border-slate-700/50 lg:hidden" />
+                        {/* ── Divider ── */}
+                        <div className="hidden h-6 border-l border-slate-700/50 lg:block" />
+                        <div className="w-full border-t border-slate-700/50 lg:hidden" />
 
-                {/* ── Actogram ── */}
-                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Actogram</span>
-                <label className="flex items-center gap-2 text-sm text-gray-300">
-                    Color
-                    <select
-                        value={colorMode}
-                        onChange={e => setColorMode(e.target.value as ColorMode)}
-                        className="rounded bg-slate-700 px-2 py-0.5 text-sm text-gray-300"
+                        {/* ── Actogram ── */}
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Actogram</span>
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            Color
+                            <select
+                                value={colorMode}
+                                onChange={e => setColorMode(e.target.value as ColorMode)}
+                                className="rounded bg-slate-700 px-2 py-0.5 text-sm text-gray-300"
+                            >
+                                <option value="stages">Sleep stages</option>
+                                <option value="quality">Quality</option>
+                            </select>
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            Row height
+                            <input
+                                type="range"
+                                min={2}
+                                max={maxRowHeight}
+                                value={effectiveRowHeight}
+                                onChange={e => setRowHeight(Number(e.target.value))}
+                                className="w-24 accent-indigo-500"
+                            />
+                            <span className="min-w-[3ch] text-right font-mono text-xs text-slate-400">{effectiveRowHeight}px</span>
+                        </label>
+                        <RowWidthControl />
+
+                        {/* ── Divider ── */}
+                        <div className="hidden h-6 border-l border-slate-700/50 lg:block" />
+                        <div className="w-full border-t border-slate-700/50 lg:hidden" />
+
+                        {/* ── Forecast ── */}
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Forecast</span>
+                        <div className="flex items-center gap-2 text-sm text-gray-300">
+                            Days
+                            <SegmentedControl
+                                value={forecastDays}
+                                options={[
+                                    { key: 0, label: "Off" },
+                                    { key: 2, label: "2" },
+                                    { key: 7, label: "7" },
+                                    { key: 30, label: "30" }
+                                ]}
+                                onChange={setForecastDays}
+                                disabled={forecastDisabled}
+                            />
+                        </div>
+                    </>
+                )}
+
+                {/* ── Collapse toggle ── */}
+                <button
+                    onClick={() => setCollapsed(c => !c)}
+                    className={`flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors ${collapsed ? "w-full justify-center" : "ml-auto"}`}
+                    title={collapsed ? "Show controls" : "Hide controls"}
+                >
+                    {collapsed ? "Expand" : "Hide"}
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`}
                     >
-                        <option value="stages">Sleep stages</option>
-                        <option value="quality">Quality</option>
-                    </select>
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-300">
-                    Row height
-                    <input
-                        type="range"
-                        min={2}
-                        max={maxRowHeight}
-                        value={effectiveRowHeight}
-                        onChange={e => setRowHeight(Number(e.target.value))}
-                        className="w-24 accent-indigo-500"
-                    />
-                    <span className="min-w-[3ch] text-right font-mono text-xs text-slate-400">{effectiveRowHeight}px</span>
-                </label>
-                <RowWidthControl />
-
-                {/* ── Divider ── */}
-                <div className="hidden h-6 border-l border-slate-700/50 lg:block" />
-                <div className="w-full border-t border-slate-700/50 lg:hidden" />
-
-                {/* ── Forecast ── */}
-                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Forecast</span>
-                <div className="flex items-center gap-2 text-sm text-gray-300">
-                    Days
-                    <SegmentedControl
-                        value={forecastDays}
-                        options={[
-                            { key: 0, label: "Off" },
-                            { key: 2, label: "2" },
-                            { key: 7, label: "7" },
-                            { key: 30, label: "30" }
-                        ]}
-                        onChange={setForecastDays}
-                        disabled={forecastDisabled}
-                    />
-                </div>
+                        <path
+                            fillRule="evenodd"
+                            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                            clipRule="evenodd"
+                        />
+                    </svg>
+                </button>
             </div>
         </div>
     );
