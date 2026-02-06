@@ -10,15 +10,14 @@ In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/f
 
 ## Features
 
-- **Actogram visualization**: Canvas-based raster plot with one row per calendar day, newest first; supports adjustable row width (τ) so rows can match a non-24-hour circadian period and sleep blocks align vertically
+- **Actogram visualization**: Canvas-based raster plot with one row per calendar day with sleep segment colors based on sleep stages
 - **Periodogram visualization**: Provides frequency analysis of circadian rhythm in the data
-- **Sleep stage coloring**: Deep (dark blue), light (blue), REM (cyan), wake (red) from Fitbit's v1.2 stage data; falls back to asleep/restless/awake coloring for v1 classic data
 - **Circadian night overlay**: Estimates circadian night based on sleep data and displays it as purple overlay on the actogram.
-- **Circadian night forecast**: Predict circadian night for 1, 7, or 30 days ahead of the latest sleep record using the most recent circadian trend.
-- **Schedule overlay**: Define recurring weekly schedules (e.g., work hours, desired sleep windows) that display as green overlay on the actogram. You can use it to see when your predicted circadian night conflicts with your schedule.
+- **Circadian night forecast**: Predict circadian night for 2, 7, or 30 days ahead of the latest sleep record using the most recent circadian trend
+- **Schedule overlay**: Define recurring weekly schedules (e.g., work hours) that display as green overlay on the actogram. You can use it to see when your predicted circadian night conflicts with your schedule.
 - **Progressive data loading**: Actogram renders and updates as each page of API data arrives (100 records per page, which is the maximum Fitbit API allows)
 - **Import/export**: Load data from JSON files or export fetched API data for offline use
-- **Adjustable row width (τ)**: Set the actogram row length to the estimated circadian period (or any value between 23–26h) so that sleep records line up vertically; defaults to 24h calendar days
+- **Adjustable row width**: Set the actogram row length to the estimated circadian period (or any value between 23-26h) so that sleep records line up vertically
 - **Double-plot mode**: Double row width for visualizing patterns that cross row boundaries
 - **Interactive tooltips**: Hover over any sleep block to see date, times, duration, efficiency, and stage breakdown
 - **Adjustable row height**: Slider provides vertical zoom for the actogram

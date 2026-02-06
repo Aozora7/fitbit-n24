@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAppContext } from "../AppContext";
 
 export default function Header() {
-    const { data, auth, filteredRecords, circadianAnalysis, daySpan, cumulativeShiftDays, avgSleepPerDay } = useAppContext();
+    const { data, auth, filteredRecords, circadianAnalysis, daySpan, cumulativeShiftDays, avgSleepPerDay, avgTimeInBedPerDay } = useAppContext();
     const [showPrivacy, setShowPrivacy] = useState(false);
     const isFiltered = filteredRecords.length !== data.records.length;
 
@@ -26,17 +26,15 @@ export default function Header() {
                 </button>
             </div>
             <p className="mt-1 text-sm text-gray-400">
-                {isFiltered
-                    ? `${filteredRecords.length} of ${data.records.length} sleep records (filtered)`
-                    : `${data.records.length} sleep records`}
+                {isFiltered ? `${filteredRecords.length} of ${data.records.length} sleep records (filtered)` : `${data.records.length} sleep records`}
                 {circadianAnalysis.globalTau !== 24 && (
                     <>
                         {" "}
-                        &middot; Estimated period:{" "}
-                        <span className="font-mono text-purple-400">τ = {circadianAnalysis.globalTau.toFixed(2)}h</span> (drift:{" "}
+                        &middot; Estimated period: <span className="font-mono text-purple-400">τ = {circadianAnalysis.globalTau.toFixed(2)}h</span> (drift:{" "}
                         {circadianAnalysis.globalDailyDrift > 0 ? "+" : ""}
                         {(circadianAnalysis.globalDailyDrift * 60).toFixed(1)} min/day) &middot; Cumulative shift: {cumulativeShiftDays >= 0 ? "+" : ""}
-                        {cumulativeShiftDays.toFixed(1)} days over {daySpan} days &middot; Avg sleep: {avgSleepPerDay.toFixed(1)}h/day
+                        {cumulativeShiftDays.toFixed(1)} days over {daySpan} days &middot; Avg sleep: {avgSleepPerDay.toFixed(1)}h/day &middot; Time in bed:{" "}
+                        {avgTimeInBedPerDay.toFixed(1)}h/day
                     </>
                 )}
             </p>
@@ -72,12 +70,7 @@ const Privacy = ({ onClose }: { onClose: () => void }) => (
                 <li>No cookies, tracking pixels, or third-party scripts.</li>
                 <li>
                     Revoke access anytime at{" "}
-                    <a
-                        href="https://www.fitbit.com/settings/applications"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 hover:underline"
-                    >
+                    <a href="https://www.fitbit.com/settings/applications" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
                         fitbit.com/settings/applications
                     </a>
                     .

@@ -38,6 +38,7 @@ export interface AppState {
     daySpan: number;
     cumulativeShiftDays: number;
     avgSleepPerDay: number;
+    avgTimeInBedPerDay: number;
 
     // Visualization settings
     doublePlot: boolean;
@@ -206,8 +207,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const [forecastDays, setForecastDays] = usePersistedState<number>("viz.forecastDays", 0);
 
-    // Disable forecast when the user has filtered out the end of their data
-    const forecastDisabled = filterEnd < totalDays;
+    const forecastDisabled = filterEnd < totalDays || !showCircadian;
     const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
 
     const circadianAnalysis = useMemo(() => analyzeCircadian(filteredRecords, effectiveForecastDays), [filteredRecords, effectiveForecastDays]);
@@ -232,6 +232,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, [circadianAnalysis.globalDailyDrift, daySpan]);
 
     const avgSleepPerDay = useMemo(() => {
+        if (filteredRecords.length === 0 || daySpan === 0) return 0;
+        return filteredRecords.reduce((sum, r) => sum + r.minutesAsleep / 60, 0) / daySpan;
+    }, [filteredRecords, daySpan]);
+
+    const avgTimeInBedPerDay = useMemo(() => {
         if (filteredRecords.length === 0 || daySpan === 0) return 0;
         return filteredRecords.reduce((sum, r) => sum + r.durationHours, 0) / daySpan;
     }, [filteredRecords, daySpan]);
@@ -259,6 +264,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             daySpan,
             cumulativeShiftDays,
             avgSleepPerDay,
+            avgTimeInBedPerDay,
             doublePlot,
             setDoublePlot,
             showCircadian,
@@ -297,6 +303,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             daySpan,
             cumulativeShiftDays,
             avgSleepPerDay,
+            avgTimeInBedPerDay,
             doublePlot,
             showCircadian,
             showPeriodogram,
