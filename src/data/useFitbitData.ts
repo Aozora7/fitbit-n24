@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useSleepData, parseApiRecords } from "./useSleepData";
-import { fetchAllSleepRecords } from "../api/sleepApi";
+import { fetchAllSleepRecords, fetchNewSleepRecords } from "../api/sleepApi";
+import { getCachedRecords, getLatestDateOfSleep, putRecords, clearUserCache } from "./sleepCache";
 import type { RawSleepRecordV12, SleepRecord } from "../api/types";
 
 export interface FitbitDataState {
@@ -14,14 +15,18 @@ export interface FitbitDataState {
     fetching: boolean;
     /** Human-readable fetch progress string */
     fetchProgress: string;
-    /** Start fetching all sleep records from the Fitbit API */
-    startFetch: (token: string) => void;
+    /** Start fetching sleep records (loads cache first, then fetches only new data) */
+    startFetch: (token: string, userId: string) => void;
     /** Abort the current fetch (keeps already-fetched data) */
     stopFetch: () => void;
     /** Trigger a JSON file import */
     importFromFile: (file: File) => void;
     /** Download all records as a JSON file */
     exportToFile: () => void;
+    /** Clear the IndexedDB cache for a user and reset in-memory state */
+    clearCache: (userId: string) => Promise<void>;
+    /** Clear in-memory state only (e.g. on sign-out) */
+    reset: () => void;
 }
 
 /**
@@ -40,25 +45,58 @@ export function useFitbitData(): FitbitDataState {
     const fetchAbortRef = useRef<AbortController | null>(null);
 
     const startFetch = useCallback(
-        async (token: string) => {
+        async (token: string, userId: string) => {
             const abortController = new AbortController();
             fetchAbortRef.current = abortController;
             setFetching(true);
-            setFetchProgress("Starting...");
-            rawRecordsRef.current = [];
-            setRecords([]);
+            setFetchProgress("Loading cached data...");
+
+            // Track new records fetched from API (for writing to cache at the end)
+            const newRawRecords: RawSleepRecordV12[] = [];
+
             try {
-                await fetchAllSleepRecords(
-                    token,
-                    (pageRecords, totalSoFar, page) => {
-                        rawRecordsRef.current.push(...pageRecords);
-                        const parsed = parseApiRecords(pageRecords);
-                        appendRecords(parsed);
-                        setFetchProgress(`Page ${page}: ${totalSoFar} records...`);
-                    },
-                    abortController.signal
-                );
-                setFetchProgress(`Done: ${rawRecordsRef.current.length} records loaded`);
+                // Phase 1: Load from IndexedDB cache
+                const cachedRaw = await getCachedRecords(userId);
+                if (cachedRaw.length > 0) {
+                    rawRecordsRef.current = [...cachedRaw];
+                    const parsed = parseApiRecords(cachedRaw);
+                    setRecords(parsed);
+                    setFetchProgress(`Loaded ${cachedRaw.length} cached records. Checking for new data...`);
+                } else {
+                    rawRecordsRef.current = [];
+                    setRecords([]);
+                    setFetchProgress("Starting...");
+                }
+
+                // Phase 2: Incremental or full fetch
+                const latestDate = await getLatestDateOfSleep(userId);
+
+                const onPageData = (pageRecords: RawSleepRecordV12[], totalSoFar: number, page: number) => {
+                    rawRecordsRef.current.push(...pageRecords);
+                    newRawRecords.push(...pageRecords);
+                    const parsed = parseApiRecords(pageRecords);
+                    appendRecords(parsed);
+                    setFetchProgress(
+                        latestDate
+                            ? `Page ${page}: ${totalSoFar} new records...`
+                            : `Page ${page}: ${totalSoFar} records...`
+                    );
+                };
+
+                if (latestDate) {
+                    await fetchNewSleepRecords(token, latestDate, onPageData, abortController.signal);
+                } else {
+                    await fetchAllSleepRecords(token, onPageData, abortController.signal);
+                }
+
+                // Phase 3: Final status
+                if (newRawRecords.length > 0) {
+                    setFetchProgress(`Done: ${rawRecordsRef.current.length} total records (${newRawRecords.length} new)`);
+                } else if (cachedRaw.length > 0) {
+                    setFetchProgress(`Up to date: ${rawRecordsRef.current.length} records`);
+                } else {
+                    setFetchProgress(`Done: ${rawRecordsRef.current.length} records loaded`);
+                }
             } catch (err: unknown) {
                 if (err instanceof DOMException && err.name === "AbortError") {
                     setFetchProgress(`Stopped: ${rawRecordsRef.current.length} records kept`);
@@ -68,6 +106,13 @@ export function useFitbitData(): FitbitDataState {
             } finally {
                 setFetching(false);
                 fetchAbortRef.current = null;
+
+                // Persist any newly fetched records to cache
+                if (newRawRecords.length > 0) {
+                    putRecords(userId, newRawRecords).catch(err =>
+                        console.warn("[sleepCache] Failed to write new records:", err)
+                    );
+                }
             }
         },
         [setRecords, appendRecords]
@@ -89,6 +134,19 @@ export function useFitbitData(): FitbitDataState {
         URL.revokeObjectURL(url);
     }, [records]);
 
+    const clearCache = useCallback(async (userId: string) => {
+        await clearUserCache(userId);
+        rawRecordsRef.current = [];
+        setRecords([]);
+        setFetchProgress("");
+    }, [setRecords]);
+
+    const reset = useCallback(() => {
+        rawRecordsRef.current = [];
+        setRecords([]);
+        setFetchProgress("");
+    }, [setRecords]);
+
     return {
         records,
         loading,
@@ -99,5 +157,7 @@ export function useFitbitData(): FitbitDataState {
         stopFetch,
         importFromFile,
         exportToFile,
+        clearCache,
+        reset,
     };
 }

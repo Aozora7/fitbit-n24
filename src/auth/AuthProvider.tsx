@@ -9,6 +9,7 @@ import { startAuth, exchangeCode } from "./oauth";
 
 export interface AuthState {
   token: string | null;
+  userId: string | null;
   loading: boolean;
   error: string | null;
   signIn: () => Promise<void>;
@@ -17,6 +18,7 @@ export interface AuthState {
 
 export const AuthContext = createContext<AuthState>({
   token: null,
+  userId: null,
   loading: false,
   error: null,
   signIn: async () => {},
@@ -26,6 +28,9 @@ export const AuthContext = createContext<AuthState>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(
     () => sessionStorage.getItem("fitbit_token"),
+  );
+  const [userId, setUserId] = useState<string | null>(
+    () => sessionStorage.getItem("fitbit_user_id"),
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,9 +47,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setLoading(true);
     exchangeCode(code)
-      .then(({ accessToken }) => {
+      .then(({ accessToken, userId: uid }) => {
         sessionStorage.setItem("fitbit_token", accessToken);
+        sessionStorage.setItem("fitbit_user_id", uid);
         setToken(accessToken);
+        setUserId(uid);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -65,11 +72,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     sessionStorage.removeItem("fitbit_token");
+    sessionStorage.removeItem("fitbit_user_id");
     setToken(null);
+    setUserId(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, loading, error, signIn, signOut }}>
+    <AuthContext.Provider value={{ token, userId, loading, error, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

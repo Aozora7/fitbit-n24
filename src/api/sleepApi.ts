@@ -49,3 +49,43 @@ export async function fetchAllSleepRecords(
 
   return allRecords;
 }
+
+/**
+ * Fetch only sleep records newer than afterDate (exclusive).
+ * Uses afterDate + sort=asc so the API returns exactly the records we don't have.
+ */
+export async function fetchNewSleepRecords(
+  token: string,
+  afterDate: string,
+  onPageData?: (pageRecords: RawSleepRecordV12[], totalSoFar: number, page: number) => void,
+  signal?: AbortSignal,
+): Promise<RawSleepRecordV12[]> {
+  const allRecords: RawSleepRecordV12[] = [];
+  let page = 0;
+  let nextPath = `/1.2/user/-/sleep/list.json?afterDate=${afterDate}&sort=asc&offset=0&limit=100`;
+
+  while (nextPath) {
+    if (signal?.aborted) break;
+
+    const data = await fitbitFetch<FitbitSleepPageV12>(nextPath, token, signal);
+    page++;
+
+    if (data.sleep && data.sleep.length > 0) {
+      allRecords.push(...data.sleep);
+      onPageData?.(data.sleep, allRecords.length, page);
+    }
+
+    if (data.pagination?.next) {
+      try {
+        const nextUrl = new URL(data.pagination.next);
+        nextPath = nextUrl.pathname + nextUrl.search;
+      } catch {
+        nextPath = "";
+      }
+    } else {
+      nextPath = "";
+    }
+  }
+
+  return allRecords;
+}

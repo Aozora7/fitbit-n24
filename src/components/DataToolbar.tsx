@@ -31,6 +31,14 @@ export default function DataToolbar() {
                             <button onClick={auth.signOut} className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600">
                                 Sign out
                             </button>
+                            {auth.userId && (
+                                <button
+                                    onClick={() => data.clearCache(auth.userId!)}
+                                    className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                                >
+                                    Clear cache
+                                </button>
+                            )}
                         </>
                     ) : (
                         <button

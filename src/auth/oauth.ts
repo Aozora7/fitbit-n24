@@ -59,7 +59,7 @@ export async function startAuth(): Promise<void> {
  */
 export async function exchangeCode(
   code: string,
-): Promise<{ accessToken: string; expiresIn: number }> {
+): Promise<{ accessToken: string; expiresIn: number; userId: string }> {
   const verifier = localStorage.getItem("pkce_verifier");
   if (!verifier) throw new Error("No PKCE verifier found in session");
 
@@ -88,11 +88,13 @@ export async function exchangeCode(
   const data = (await response.json()) as {
     access_token: string;
     expires_in: number;
+    user_id: string;
   };
   localStorage.removeItem("pkce_verifier");
 
   return {
     accessToken: data.access_token,
     expiresIn: data.expires_in,
+    userId: data.user_id,
   };
 }

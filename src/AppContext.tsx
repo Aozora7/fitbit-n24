@@ -24,7 +24,7 @@ const ACTOGRAM_MARGINS = 50;
 export interface AppState {
     // Data
     data: FitbitDataState;
-    auth: { token: string | null; loading: boolean; error: string | null; signIn: () => Promise<void>; signOut: () => void };
+    auth: { token: string | null; userId: string | null; loading: boolean; error: string | null; signIn: () => Promise<void>; signOut: () => void };
     hasClientId: boolean;
 
     // Filtered / derived data
@@ -151,11 +151,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Auto-fetch after OAuth login (token appears and no data loaded yet)
     const autoFetchedRef = useRef(false);
     useEffect(() => {
-        if (auth.token && data.records.length === 0 && !data.fetching && !autoFetchedRef.current) {
+        if (auth.token && auth.userId && data.records.length === 0 && !data.fetching && !autoFetchedRef.current) {
             autoFetchedRef.current = true;
-            data.startFetch(auth.token);
+            data.startFetch(auth.token, auth.userId);
         }
-    }, [auth.token, data.records.length, data.fetching, data.startFetch]);
+    }, [auth.token, auth.userId, data.records.length, data.fetching, data.startFetch]);
 
     // Date range filter state
     const [filterStart, setFilterStart] = useState(0);
@@ -242,8 +242,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, [filteredRecords, daySpan]);
 
     const handleFetch = useCallback(() => {
-        if (auth.token) data.startFetch(auth.token);
-    }, [auth.token, data.startFetch]);
+        if (auth.token && auth.userId) data.startFetch(auth.token, auth.userId);
+    }, [auth.token, auth.userId, data.startFetch]);
 
     const hasClientId = !!import.meta.env.VITE_FITBIT_CLIENT_ID;
 
