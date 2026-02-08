@@ -199,7 +199,18 @@ Three rendering paths based on color mode and data availability:
 | Wake | Red | `#ef4444` |
 
 ### Double-plot mode
-Each day's sleep blocks are drawn twice: at their normal position and shifted by `baseHours` right. The circadian and schedule overlays are also doubled. This preserves visual continuity for sleep that crosses row boundaries.
+
+In double-plot mode, each row displays 48 hours: the left half shows day D (hours 0–24) and the right half shows day D+1 (hours 24–48). Rows are ordered newest-first, so for row index `i`, `rows[i-1]` is the next calendar day.
+
+**Sleep blocks**: The left half draws the current row's blocks at their normal positions. The right half draws `rows[i-1]`'s blocks shifted by `baseHours`. This means each day's data appears twice — on the right half of the previous row and the left half of its own row — creating visual continuity for sleep records that cross midnight.
+
+**Schedule overlay**: Same next-day logic as sleep blocks. The right half draws the schedule entries for `rows[i-1]`'s calendar date (which may be a different day of the week with different schedule entries).
+
+**Circadian overlay**: Duplicates the same day's prediction on both halves (does NOT use next-day data). This matches the tooltip's `hour % 24` hit-testing, which checks the current row's circadian data regardless of which half is hovered. The circadian night is a per-day estimate, and duplicating it maintains consistency between the visual overlay position and the tooltip.
+
+**Tooltip**: Sleep block hit-testing checks both the current row's blocks (offset 0) and `rows[rowIdx-1]`'s blocks (offset `baseHours`), returning the source row's date in the tooltip. Circadian hit-testing normalizes the cursor hour with `hour % 24` and checks against the current row's circadian data only.
+
+The topmost row (`i = 0`) has no right-half data for sleep/schedule since there is no `rows[-1]`.
 
 ### Tau mode
 When the row width is set to a custom period (e.g. 24.5h), rows are built by `buildTauRows()` instead of `buildActogramRows()`. Each row has a `startMs` timestamp used for absolute positioning of sleep blocks, circadian overlay, and schedule overlay. Hour labels show relative offsets (`+0`, `+6`, ...) instead of clock times.
