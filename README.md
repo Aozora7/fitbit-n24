@@ -59,8 +59,8 @@ To fetch data directly from the Fitbit API:
 
 The app starts empty. You can:
 
-- **Fetch from Fitbit**: Sign in via OAuth and fetch all historical sleep data (v1.2 API with sleep stages)
-- **Import JSON**: Load a previously exported file, or raw Fitbit API response data (v1 or v1.2 format)
+- **Fetch from Fitbit**: Sign in via OAuth and fetch all historical sleep data (v1.2 API with sleep stages). Data is cached in IndexedDB; subsequent fetches only retrieve new records.
+- **Import JSON**: Load a previously exported file or raw Fitbit API v1.2 response data
 - **Export JSON**: Save the current dataset as a JSON file that can be re-imported later
 
 Supported import formats:
@@ -79,7 +79,7 @@ src/
 
   api/                  Fitbit API types, fetch wrapper, paginated sleep list
   auth/                 OAuth 2.0 PKCE flow, auth context provider
-  data/                 Multi-format JSON parsing, data fetching hook
-  models/               Actogram row transform, circadian estimation algorithm
-  components/           UI components (header, toolbar, controls, actogram, legend, slider)
+  data/                 Data loading, IndexedDB caching, fetch orchestration
+  models/               Actogram row transform, circadian estimation, sleep scoring, periodogram
+  components/           UI components (header, toolbar, controls, actogram, periodogram, legend, schedule editor)
 ```

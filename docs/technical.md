@@ -5,41 +5,44 @@
 The app follows a unidirectional data flow with two data paths — fetching from the Fitbit API and importing from local JSON files:
 
 ```
-Fitbit API (v1.2)                   Local JSON file
-  -> sleepApi.ts                      -> loadLocalData.ts
-     (paginated fetch,                   (auto-detect v1/v1.2/exported format,
-      progressive callback)               parse, sort, deduplicate)
-  -> parseApiRecords()                      |
-     (RawSleepRecordV12 -> SleepRecord)     |
-  -> appendRecords() per page               |
-            |                               |
-            v                               v
+Fitbit API (v1.2)                        Local JSON file
+  -> sleepApi.ts                           -> loadLocalData.ts
+     (paginated fetch,                        (auto-detect v1.2/exported format,
+      progressive callback)                    parse, sort, deduplicate)
+  -> parseApiRecords()                              |
+     (RawSleepRecordV12 -> SleepRecord              |
+      via calculateSleepScore)                      |
+  -> appendRecords() per page                       |
+            |                                       |
+            v                                       v
+      useFitbitData.ts (orchestrator hook)
+        - Phase 1: Load from IndexedDB cache (sleepCache.ts)
+        - Phase 2: Incremental fetch from API (only records after latest cached date)
+        - Persists new records to IndexedDB after fetch
+            |
+            v
         SleepRecord[] (useSleepData hook state)
             |
-            +---> buildActogramRows()  (one row per calendar day, blocks clipped to [0, 24h])
+            +---> buildActogramRows()  (one row per calendar day or per tau-length window)
             |       -> ActogramRow[]
             |       -> useActogramRenderer() (Canvas drawing)
             |
-            +---> analyzeCircadian()  (quality scoring, anchor selection, sliding-window WLS)
-                    -> CircadianAnalysis { days: CircadianDay[], globalTau, confidence, ... }
-                    -> useActogramRenderer() (purple overlay band with variable alpha)
+            +---> analyzeCircadian()  (anchor selection, sliding-window robust regression)
+            |       -> CircadianAnalysis { days: CircadianDay[], globalTau, ... }
+            |       -> useActogramRenderer() (purple/amber overlay band with variable alpha)
+            |
+            +---> computeLombScargle()  (windowed phase coherence periodogram)
+                    -> PeriodogramResult { points, peakPeriod, significanceThreshold, ... }
+                    -> Periodogram.tsx (Canvas chart)
 ```
 
-All computation happens in `useMemo` hooks inside React components. The actogram rows and circadian analysis are recomputed when the underlying records change. During a fetch, records accumulate incrementally and the visualization updates after each API page.
+All computation happens in `useMemo` hooks inside `AppContext.tsx`. The actogram rows and circadian analysis are recomputed when the underlying records or filter range change. During a fetch, records accumulate incrementally and the visualization updates after each API page.
 
 ## Data formats
 
-### Fitbit API v1 (classic)
-
-Older records have per-minute data with three states:
-
-- `minuteData[].value`: `"1"` = asleep, `"2"` = restless, `"3"` = awake
-- `duration`: milliseconds
-- No `isMainSleep` field; the app assumes true
-
 ### Fitbit API v1.2 (stages)
 
-Modern records include sleep stage data:
+The app only supports v1.2 format records. These include sleep stage data:
 
 - `levels.data[]`: array of `{ dateTime, level, seconds }` where level is `"deep"`, `"light"`, `"rem"`, or `"wake"`
 - `levels.summary`: `{ deep: { minutes, count }, light: {...}, rem: {...}, wake: {...} }`
@@ -50,15 +53,18 @@ The classic-type records in v1.2 have `levels.summary` with `asleep`/`restless`/
 
 ### Unified SleepRecord
 
-Both formats are parsed into a common `SleepRecord` type:
+v1.2 records are parsed into a common `SleepRecord` type:
 
+- `logId`: number
+- `dateOfSleep`: string (YYYY-MM-DD)
 - `startTime` / `endTime`: `Date` objects
 - `durationMs` / `durationHours`: computed from `duration`
 - `efficiency`: 0-100
+- `minutesAsleep` / `minutesAwake`: number
 - `isMainSleep`: boolean
+- `sleepScore`: number (0-1), computed by `calculateSleepScore()`
 - `stages?`: `{ deep, light, rem, wake }` in minutes (only for v1.2 stages type)
 - `stageData?`: `SleepLevelEntry[]` for per-interval rendering (v1.2)
-- `minuteData?`: per-minute array (v1)
 
 ### Export format
 
@@ -77,7 +83,7 @@ Auto-detects and parses multiple JSON structures:
 For each record, format detection:
 - `"durationMs"` present → internal exported format (re-hydrate Date objects)
 - `"levels"` or `"type"` present → v1.2 API format
-- Otherwise → v1 API format
+- Otherwise → error (v1 format is not supported)
 
 Records are sorted by `startTime` ascending and deduplicated by `logId`.
 
@@ -88,6 +94,32 @@ React hook managing the records state with three mutation paths:
 - `setRecords(recs)`: Replace all records (sort + dedup)
 - `appendRecords(newRecs)`: Merge new records into existing set (for progressive loading)
 - `importFromFile(file)`: Create a blob URL from the file and delegate to `loadLocalData`
+
+### `useFitbitData.ts`
+
+Orchestrator hook that wraps `useSleepData` with fetch lifecycle, caching, and export:
+
+- `startFetch(token, userId)`: Two-phase fetch — load IndexedDB cache first, then fetch only records newer than the latest cached date via `fetchNewSleepRecords()`. Falls back to full fetch via `fetchAllSleepRecords()` if no cache exists.
+- `stopFetch()`: Aborts the current fetch via `AbortController`, keeping already-fetched data.
+- `exportToFile()`: Downloads raw API records (or internal records if imported) as JSON.
+- `clearCache(userId)`: Clears IndexedDB and in-memory state.
+- `reset()`: Clears in-memory state only (used on sign-out).
+
+Newly fetched records are persisted to IndexedDB in the `finally` block after fetch completes or aborts.
+
+## IndexedDB caching (`sleepCache.ts`)
+
+The app caches raw API records in IndexedDB for fast reload:
+
+- Database: `"fitbit-n24-cache"` (version 1)
+- Object store: `"sleepRecords"` with keyPath `"logId"`
+- Compound index: `["_userId", "dateOfSleep"]` for per-user queries
+- Functions:
+  - `getCachedRecords(userId)`: Returns all cached records for a user
+  - `getLatestDateOfSleep(userId)`: Returns the most recent `dateOfSleep` in the cache (used for incremental fetch)
+  - `putRecords(userId, records)`: Writes records to the store (stamps each with `_userId`)
+  - `clearUserCache(userId)`: Deletes all records for a user
+- Gracefully degrades if IndexedDB is unavailable (returns empty results, logs warnings)
 
 ## Authentication
 
@@ -105,12 +137,12 @@ Tokens are stored in `sessionStorage` (cleared when the tab closes). The client 
 
 ### API fetching (`api/sleepApi.ts`)
 
-`fetchAllSleepRecords()` paginates through the v1.2 sleep list endpoint:
+Two fetch functions:
 
-- Starts from tomorrow's date (to capture today's sleep)
-- Fetches 100 records per page, following `pagination.next` cursors
-- Calls `onPageData(pageRecords, totalSoFar, page)` after each page, enabling progressive rendering
-- Returns all raw records when complete
+- `fetchAllSleepRecords()`: Paginates through the v1.2 sleep list endpoint starting from tomorrow's date. Fetches 100 records per page, following `pagination.next` cursors. Calls `onPageData(pageRecords, totalSoFar, page)` after each page.
+- `fetchNewSleepRecords()`: Incremental fetch using an `afterDate` parameter to only retrieve records newer than the latest cached date.
+
+Both accept an `AbortSignal` for cancellation.
 
 ## Actogram data transform
 
@@ -125,6 +157,8 @@ Tokens are stored in `sessionStorage` (cleared when the tab closes). The client 
 
 A sleep record from 23:00 to 07:00 produces two blocks: one on day 1 covering `[23, 24)` and one on day 2 covering `[0, 7)`.
 
+`buildTauRows()` creates rows of custom length (e.g. 24.5h) instead of calendar days, producing a `startMs` field on each row for absolute time positioning.
+
 **Timezone handling**: All day boundaries use local time via `Date.setHours(0,0,0,0)` and manual `getFullYear()/getMonth()/getDate()` formatting. Earlier versions used `toISOString().slice(0,10)` which caused UTC conversion bugs for non-UTC timezones.
 
 ## Canvas rendering
@@ -133,26 +167,28 @@ A sleep record from 23:00 to 07:00 produces two blocks: one on day 1 covering `[
 
 ### Coordinate system
 - Y axis: each row is `rowHeight` CSS pixels tall, starting at `topMargin`
-- X axis: `d3-scale`'s `scaleLinear` maps `[0, 24]` (or `[0, 48]` in double-plot mode) to `[leftMargin, canvasWidth - rightMargin]`
+- X axis: `d3-scale`'s `scaleLinear` maps `[0, hoursPerRow]` to `[leftMargin, canvasWidth - rightMargin]`, where `hoursPerRow` is `baseHours` (24 or custom tau) doubled if in double-plot mode
 - The canvas is sized at `devicePixelRatio` scale for sharp rendering, then drawn in CSS pixel coordinates after a `ctx.scale(dpr, dpr)` call
+- In tau mode, left margin is widened to 110px to accommodate `YYYY-MM-DD HH:mm` labels
 
 ### Drawing order
 1. Background fill
 2. Hour grid lines (every 6 hours)
-3. Hour labels at top
-4. Circadian overlay (purple semi-transparent bands, alpha varies by confidence)
-5. Sleep blocks (stage coloring, minute coloring, or solid fallback)
-6. Date labels on left margin (every row at large heights, every 7th row at small heights)
+3. Hour labels at top (absolute hours in calendar mode, relative `+0, +6, ...` offsets in tau mode)
+4. Circadian overlay (purple for historical, amber for forecast; alpha = `0.1 + confidenceScore * 0.25`)
+5. Schedule overlay (green semi-transparent blocks, `rgba(34, 197, 94, 0.2)`)
+6. Sleep blocks (stage coloring, quality coloring, or solid fallback)
+7. Date labels on left margin (every row at large heights, every 7th row at small heights)
 
 ### Sleep block rendering
 
-Three rendering paths based on data availability and pixel width:
+Three rendering paths based on color mode and data availability:
 
-1. **v1.2 stage data** (block > 5px wide): `drawStageBlock()` renders each `SleepLevelEntry` as a colored rectangle. Stage entry times are mapped to x-axis coordinates by computing absolute time boundaries for the block (deriving the row's local midnight from the record's start time) and then linearly mapping entry positions within those boundaries.
+1. **Quality mode**: Solid color based on `sleepScore`, mapped through a red→yellow→green HSL gradient (hue 0°→120°, scaled from score range 0.5–1.0).
 
-2. **v1 minute data** (block > 10px wide): `drawMinuteBlock()` renders individual minute rectangles. The offset into `minuteData` is calculated from the block's clipped start relative to the record's start time.
+2. **Stage data** (block > 5px wide): `drawStageBlock()` renders each `SleepLevelEntry` as a colored rectangle. Stage entry times are mapped to x-axis coordinates by computing absolute time boundaries for the block and linearly mapping entry positions. Supports both calendar mode (reconstructs midnight from record start) and tau mode (uses `row.startMs`).
 
-3. **Solid fallback**: A single rectangle using light blue (v1.2) or blue (v1).
+3. **Solid fallback**: A single light blue rectangle for blocks too narrow for stage detail or records without stage data.
 
 ### Stage colors
 | Stage | Color | Hex |
@@ -162,15 +198,11 @@ Three rendering paths based on data availability and pixel width:
 | REM | Cyan | `#06b6d4` |
 | Wake | Red | `#ef4444` |
 
-### v1 minute colors
-| State | Color | Hex |
-|---|---|---|
-| Asleep | Blue | `#3b82f6` |
-| Restless | Yellow | `#eab308` |
-| Awake | Red | `#ef4444` |
-
 ### Double-plot mode
-Each day's sleep blocks are drawn twice: at their normal position and shifted 24 hours right. The circadian overlay is also doubled. This preserves visual continuity for sleep that crosses midnight.
+Each day's sleep blocks are drawn twice: at their normal position and shifted by `baseHours` right. The circadian and schedule overlays are also doubled. This preserves visual continuity for sleep that crosses row boundaries.
+
+### Tau mode
+When the row width is set to a custom period (e.g. 24.5h), rows are built by `buildTauRows()` instead of `buildActogramRows()`. Each row has a `startMs` timestamp used for absolute positioning of sleep blocks, circadian overlay, and schedule overlay. Hour labels show relative offsets (`+0`, `+6`, ...) instead of clock times.
 
 ## Circadian period estimation
 
@@ -178,61 +210,106 @@ Each day's sleep blocks are drawn twice: at their normal position and shifted 24
 
 ### Step 1: Quality scoring
 
-Each sleep record receives a quality score (0-1):
+Each sleep record receives a quality score (0-1) via `calculateSleepScore()` in `models/calculateSleepScore.ts`. This uses a regression model with weights fitted to a dataset of Fitbit records with known quality scores:
 
-- **v1.2 records with stage data**: `0.5 * remFraction + 0.25 * deepMinutes/90 + 0.25 * (1 - wakeFraction)` where `remFraction = rem / (rem + light + deep)` (excluding wake from total). REM percentage is the strongest signal — circadian-aligned sleep typically has ~21% REM vs ~9% for poorly-timed sleep.
+```
+score = 66.607 + 9.071 * durationScore + 0.111 * deepPlusRemMinutes - 102.527 * wakePct
+```
 
-- **v1 or classic records**: `min(efficiency / 100, 0.7)`. Capped at 0.7 because efficiency only measures restlessness, not sleep stage quality.
+Where:
+- **durationScore** (0-1): Piecewise function of `minutesAsleep/60` — ramps 0→0.5 for 0-4h, 0.5→1.0 for 4-7h, plateau at 7-9h, declines to 0 for 9-12h
+- **deepPlusRemMinutes**: `deep + rem` minutes from stage summary. For classic records without stage data, estimated as 39% of `minutesAsleep`
+- **wakePct**: `wake minutes / timeInBed` (or `minutesAwake / timeInBed` for classic records)
+
+The raw score is clamped to 0-100, rounded, then divided by 100 to produce a 0-1 value stored as `sleepScore` on each `SleepRecord`.
 
 ### Step 2: Tiered anchor classification
 
-Records are classified into three tiers based on duration and quality:
+Records are classified into three tiers based on duration and quality score:
 
-| Tier | Duration | Quality | Weight | Purpose |
+| Tier | Duration | Quality | Base Weight | Purpose |
 |---|---|---|---|---|
-| A | >= 7h | >= 0.5 | 1.0 | High-confidence circadian sleep |
-| B | >= 5h | >= 0.3 | 0.4 | Moderate-confidence |
-| C | >= 4h | >= 0.2 | 0.1 | Gap-fill only (used if < 25% of days covered by A+B) |
+| A | >= 7h | >= 0.75 | 1.0 | High-confidence circadian sleep |
+| B | >= 5h | >= 0.60 | 0.4 | Moderate-confidence |
+| C | >= 4h | >= 0.40 | 0.1 | Gap-fill only |
 
-When multiple qualifying records exist for the same `dateOfSleep`, only the one with the highest quality score is kept.
+The effective weight for each anchor is `baseWeight * quality * durFactor`, where `durFactor = min(1, (durationHours - 4) / 5)`. This means longer, higher-quality sleeps receive more influence in the regression.
+
+Tier C anchors are only included when the maximum gap between consecutive A+B anchor dates exceeds 14 days, indicating sparse coverage that needs filling.
+
+When multiple qualifying records exist for the same `dateOfSleep`, only the one with the highest weight is kept.
 
 ### Step 3: Midpoint calculation and phase unwrapping
 
-For each anchor, the sleep midpoint is computed as fractional hours from the Unix epoch (absolute time), then converted to a day index for regression. The midpoint sequence is unwrapped: if consecutive midpoints jump by more than 12 hours, 24 hours is added or subtracted to maintain continuity.
+For each anchor, the sleep midpoint is computed as fractional hours from the first record's midnight (absolute time), paired with a day index for regression.
+
+The midpoint sequence is unwrapped using a three-pass algorithm to handle 24-hour wraparound:
+
+1. **Sequential pairwise unwrap**: If consecutive midpoints differ by more than 12 hours, 24h is added or subtracted to maintain continuity. This produces a rough trajectory but can accumulate cascading errors.
+2. **Global linear fit snap**: A preliminary weighted linear regression is fit to the rough trajectory. Each anchor's midpoint is snapped to within 12h of its predicted value. This corrects large cascading errors from pass 1.
+3. **Rolling 30-day local fit**: For each anchor, a local regression is fit using only preceding anchors within 30 days. The anchor is snapped to within 12h of this local prediction. This follows local trends through periods where tau changes, which the global fit cannot capture.
 
 ### Step 4: Outlier rejection
 
-A preliminary global linear regression is fit to all anchors. Records with residuals exceeding 4 hours are removed. This eliminates forced-schedule sleeps that passed the duration/quality thresholds but don't reflect the true circadian phase.
+A preliminary global fit is computed across all anchors. Records with residuals exceeding **8 hours** are flagged as outliers. These are removed only if they constitute less than 15% of total anchors, then the remaining anchors are re-unwrapped.
 
-### Step 5: Sliding-window weighted least squares
+### Step 5: Sliding-window robust regression
 
-For each calendar day, a 90-day Gaussian-weighted window is evaluated:
+For each calendar day, a sliding window is evaluated:
 
-1. Collect all anchors within the window
-2. Apply Gaussian weights (sigma = 30 days) multiplied by each anchor's tier weight
-3. Fit weighted linear regression: `midpoint = slope * dayIndex + intercept`
-4. Extract local tau = `24 + slope`, along with quality metrics (anchor density, mean quality, residual MAD)
+1. Collect all anchors within **±21 days** (42-day window)
+2. Apply Gaussian weights (sigma = **14 days**) multiplied by each anchor's tier weight
+3. Fit **robust weighted regression** using IRLS (iteratively reweighted least squares) with Tukey bisquare M-estimation (tuning constant = 4.685, up to 5 iterations). This downweights outliers that survived Step 4.
+4. Extract local tau = `24 + slope`, along with quality metrics (anchor count, mean quality, residual MAD, average A-tier sleep duration)
 5. Compute a composite confidence score: `0.4 * density + 0.3 * quality + 0.3 * (1 - residualSpread)`
 
-Windows with fewer than 5 anchors or all anchors on the same day fall back to the global regression.
+If fewer than **6 anchors** fall in the window, it expands progressively: first to ±32 days, then to ±60 days (120-day window).
 
 ### Step 6: Per-day projection
 
-For each calendar day, the local regression predicts a midpoint. An 8-hour window centered on this midpoint defines the estimated circadian night. The circadian overlay uses the day's confidence score to modulate alpha: `0.1 + confidence * 0.25`.
+For each calendar day, the local regression predicts a midpoint. A window centered on this midpoint defines the estimated circadian night. The window duration is based on the average sleep duration of A-tier anchors in the local window, falling back to 8 hours if no A-tier data is available.
+
+The circadian overlay uses the day's confidence score to modulate alpha: `0.1 + confidenceScore * 0.25`.
+
+### Forecast extrapolation
+
+When forecast days are requested, the regression from the last data day (the "edge fit") is frozen and extrapolated forward. Forecast confidence decays exponentially: `edgeBaseConfidence * exp(-0.1 * daysFromEdge)`, reaching ~50% at 7 days and ~5% at 30 days. The forecast overlay is drawn in amber (`rgba(251, 191, 36, alpha)`) to distinguish it from the purple historical overlay.
 
 ### Output
 
 `CircadianAnalysis` contains:
 - `globalTau` / `globalDailyDrift`: Confidence-weighted average of all local tau estimates
-- `confidenceScore`: Overall dataset confidence
+- `anchors[]`: Array of `AnchorPoint` with `dayNumber`, `midpointHour`, `weight`, `tier`, `date`
 - `anchorCount` / `anchorTierCounts`: How many anchors in each tier
 - `medianResidualHours`: Median absolute deviation of anchor residuals from the model
-- `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `confidenceScore`
-- Legacy compat fields: `tau`, `dailyDrift`, `rSquared` for backward compatibility
+- `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `localDrift`, `confidenceScore`, `confidence` (tier: "high"/"medium"/"low"), `anchorSleep?`, `isForecast`
+- Legacy compat fields: `tau`, `dailyDrift`, `rSquared`
+
+## Phase coherence periodogram
+
+`computeLombScargle()` in `models/lombScargle.ts` computes a windowed phase coherence periodogram using the weighted Rayleigh test. Despite the filename (a historical artifact), this is not a Lomb-Scargle spectral method.
+
+For each trial period P (default 23–26h in 0.01h steps), anchor times are folded modulo P and mapped to angles on the unit circle. The squared mean resultant length R² measures phase concentration:
+- R² ≈ 1 → all anchors align at one phase → strong periodicity at P
+- R² ≈ 0 → anchors spread uniformly → no periodicity at P
+
+### Windowed approach
+
+Because tau varies over time, computing global R² across years of data with variable tau produces a weak signal. Instead, R² is computed within overlapping sliding windows (~120 days, stepped by 30 days) where tau is approximately stable, then averaged across all windows. If the data span is short enough (≤ 1.5× window size), a single global window is used.
+
+Minimum 8 anchors per window. Results are Gaussian-smoothed (sigma = 3 bins) to suppress aliasing sidelobes.
+
+### Display trimming
+
+The result includes both full-range points and a `trimmedPoints` array auto-focused on the region of interest: the extent of significant peaks (plus padding), always including 24h as a reference. If no peaks exceed the significance threshold, the display centers on the peak period ±1h.
+
+### Significance threshold
+
+The Rayleigh test significance threshold for p < 0.01: `R²_crit = -ln(0.01) / N_eff`, where N_eff is the effective sample size accounting for non-uniform weights.
 
 ## Tooltip interaction
 
-The `getTooltipInfo` callback converts mouse coordinates to row index and hour, then searches for a matching sleep block. For v1.2 records with stage data, the tooltip shows a breakdown: `D:78 L:157 R:63 W:81min`. The tooltip is rendered as a fixed-position React div overlaying the canvas.
+The `getTooltipInfo` callback converts mouse coordinates to row index and hour, then searches for a matching sleep block. For v1.2 records with stage data, the tooltip shows a breakdown: `D:78 L:157 R:63 W:81min`. It also shows the quality score percentage. Hovering over the circadian overlay shows the estimated night window, local tau, and confidence level (and whether it's a forecast). The tooltip is rendered as a fixed-position React div overlaying the canvas.
 
 ## Tailwind CSS v4
 

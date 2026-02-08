@@ -84,7 +84,7 @@ The sleep midpoint (halfway between sleep onset and wake time) is used as a prox
 
 Not all sleep records are equally informative. When the Fitbit v1.2 API provides sleep stage data, the proportion of REM and deep sleep is the strongest signal for whether a sleep with a long duration was circadian-aligned. Fitbit's own sleep score available in the official app highly correlates with circadian-aligned sleep, however, Fitbit's sleep API does not provide it.
 
-This app attempts its own sleep quality score based on sleep duration, deep + REM sleep percentage, and time asleep vs time in bed as a rough approximation of Fitbit's score.
+This app computes its own sleep quality score using a regression model with weights fitted to actual Fitbit data. The features are a piecewise duration score, deep + REM minutes, and wake percentage (wake minutes / time in bed). For classic records without stage data, deep + REM is estimated as 39% of minutes asleep.
 
 ### Tiered anchor selection
 
@@ -92,7 +92,7 @@ Records are classified into three tiers based on duration and quality:
 
 - **Tier A** : High-confidence anchors that almost certainly represent circadian sleep
 - **Tier B** : Moderate-confidence anchors
-- **Tier C** : Used only for gap-filling when fewer than 25% of days are covered by A and B anchors
+- **Tier C** : Used only for gap-filling when the maximum gap between consecutive A+B anchor dates exceeds 14 days
 
 When multiple records exist for the same calendar day, only the highest-quality one is kept.
 
@@ -102,14 +102,14 @@ After initial anchor selection, a global linear regression is fit and records wi
 
 ### Sliding-window weighted regression
 
-Rather than fitting a single line to the entire dataset (which assumes constant tau), the app uses a 90-day Gaussian-weighted sliding window stepped daily:
+Rather than fitting a single line to the entire dataset (which assumes constant tau), the app uses a 42-day Gaussian-weighted sliding window (±21 days, expandable to ±60 days if data is sparse) stepped daily:
 
-1. For each calendar day, collect all anchors within +/- 45 days
-2. Weight each anchor by a Gaussian (sigma = 30 days) multiplied by its tier weight
-3. Fit weighted least squares: midpoint = slope \* dayIndex + intercept
+1. For each calendar day, collect all anchors within the window
+2. Weight each anchor by a Gaussian (sigma = 14 days) multiplied by its tier weight
+3. Fit robust weighted regression (IRLS with Tukey bisquare M-estimation): midpoint = slope \* dayIndex + intercept
 4. Local tau = 24 + slope
 
-This produces a per-day tau estimate that captures gradual changes in the circadian period over months and years. The circadian overlay follows these local estimates, so the predicted night band curves rather than being a straight diagonal.
+This produces a per-day tau estimate that captures gradual changes in the circadian period over months and years. The circadian overlay follows these local estimates, so the predicted night band curves rather than being a straight diagonal. The robust regression automatically downweights outliers that survived the initial rejection step.
 
 A composite confidence score for each day combines anchor density (40%), mean anchor quality (30%), and residual spread (30%). The circadian overlay uses this to modulate opacity — regions with dense, high-quality data are drawn more prominently.
 
@@ -117,7 +117,7 @@ A composite confidence score for each day combines anchor density (40%), mean an
 
 **Midpoint as phase marker**: Using the midpoint of the sleep record assumes sleep is roughly symmetric around the circadian nadir. In practice, sleep onset and offset relate differently to the underlying circadian phase, and forced wake times can shift the midpoint away from the true circadian center.
 
-**8-hour assumed duration**: The circadian overlay uses a fixed 8-hour window regardless of actual sleep durations.
+**Variable night duration**: The circadian overlay uses the average sleep duration of high-confidence (A-tier) anchors in the local window to size the night band, falling back to 8 hours when no A-tier anchors are available. This is still an approximation — actual circadian night duration is not directly measurable from wearable data.
 
 **No change-point detection**: The sliding window captures gradual tau changes but cannot detect sudden phase shifts from jet lag, medication changes, or entrainment episodes. These appear as brief anomalies in the overlay rather than clean transitions.
 
