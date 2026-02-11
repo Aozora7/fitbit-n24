@@ -118,7 +118,9 @@ export function buildTauRows(records: SleepRecord[], tau: number, extraDays = 0)
 
   // Start from midnight of the first record's day
   const originMs = localMidnight(records[0]!.startTime).getTime();
-  const lastMs = records[records.length - 1]!.endTime.getTime() + extraDays * 86_400_000;
+  const lastDate = new Date(records[records.length - 1]!.endTime);
+  lastDate.setDate(lastDate.getDate() + extraDays);
+  const lastMs = lastDate.getTime();
 
   const rowCount = Math.ceil((lastMs - originMs) / tauMs);
   const rows: ActogramRow[] = [];

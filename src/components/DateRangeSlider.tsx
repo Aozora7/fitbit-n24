@@ -69,7 +69,8 @@ export default function DateRangeSlider() {
         // Find all year boundaries within the range
         let currentDate = new Date(firstDate);
         for (let dayIdx = 0; dayIdx <= totalDays; dayIdx++) {
-            currentDate.setTime(firstDate.getTime() + dayIdx * 86400000);
+            currentDate.setTime(firstDate.getTime());
+            currentDate.setDate(firstDate.getDate() + dayIdx);
             if (currentDate.getMonth() === 0 && currentDate.getDate() === 1) {
                 marks.push({ dayIdx, year: currentDate.getFullYear() });
             }

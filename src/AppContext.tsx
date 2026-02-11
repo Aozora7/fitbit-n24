@@ -167,7 +167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (data.records.length === 0) return 0;
         const first = data.records[0]!.startTime.getTime();
         const last = data.records[data.records.length - 1]!.endTime.getTime();
-        return Math.ceil((last - first) / 86_400_000) + 1;
+        return Math.round((last - first) / 86_400_000) + 1;
     }, [data.records]);
 
     const firstDateStr = useMemo(() => {
@@ -193,9 +193,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         const base = new Date(data.records[0]!.startTime);
         base.setHours(0, 0, 0, 0);
-        const baseDay = base.getTime();
-        const rangeStartMs = baseDay + filterStart * 86_400_000;
-        const rangeEndMs = baseDay + filterEnd * 86_400_000;
+        const rangeStart = new Date(base);
+        rangeStart.setDate(rangeStart.getDate() + filterStart);
+        const rangeStartMs = rangeStart.getTime();
+        const rangeEnd = new Date(base);
+        rangeEnd.setDate(rangeEnd.getDate() + filterEnd);
+        const rangeEndMs = rangeEnd.getTime();
 
         return data.records.filter(r => r.endTime.getTime() > rangeStartMs && r.startTime.getTime() < rangeEndMs);
     }, [data.records, filterStart, filterEnd, totalDays]);
@@ -216,7 +219,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (filteredRecords.length === 0) return 0;
         const first = filteredRecords[0]!.startTime.getTime();
         const last = filteredRecords[filteredRecords.length - 1]!.endTime.getTime();
-        return Math.ceil((last - first) / 86_400_000) + 1;
+        return Math.round((last - first) / 86_400_000) + 1;
     }, [filteredRecords]);
 
     const maxRowHeight = useMemo(() => {

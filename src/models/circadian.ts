@@ -324,7 +324,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
     let maxGapAB = 0;
     for (let i = 1; i < abDates.length; i++) {
-        const gap = (new Date(abDates[i]! + "T00:00:00").getTime() - new Date(abDates[i - 1]! + "T00:00:00").getTime()) / 86_400_000;
+        const gap = Math.round((new Date(abDates[i]! + "T00:00:00").getTime() - new Date(abDates[i - 1]! + "T00:00:00").getTime()) / 86_400_000);
         maxGapAB = Math.max(maxGapAB, gap);
     }
 
@@ -341,7 +341,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         if (!activeIds.has(record.logId)) continue;
         const c = candMap.get(record.logId)!;
         anchors.push({
-            dayNumber: (new Date(record.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000,
+            dayNumber: Math.round((new Date(record.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000),
             midpointHour: sleepMidpointHour(record, firstDateMs),
             weight: c.weight,
             tier: c.tier,
@@ -379,7 +379,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     // Step 6: Per-day sliding window
     const lastDay = Math.max(
         anchors[anchors.length - 1]!.dayNumber,
-        (new Date(sorted[sorted.length - 1]!.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000
+        Math.round((new Date(sorted[sorted.length - 1]!.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000)
     );
 
     // Best anchor per date for anchorSleep field
@@ -415,8 +415,10 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     const edgeBaseConf =
         0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected) + 0.3 * edgeResult.avgQuality + 0.3 * (1 - Math.min(1, edgeResult.residualMAD / 3));
 
+    const firstDate = new Date(firstDateMs);
     for (let d = 0; d <= totalDays; d++) {
-        const dayDate = new Date(firstDateMs + d * 86_400_000);
+        const dayDate = new Date(firstDate);
+        dayDate.setDate(firstDate.getDate() + d);
         const dateStr = dayDate.getFullYear() + "-" + String(dayDate.getMonth() + 1).padStart(2, "0") + "-" + String(dayDate.getDate()).padStart(2, "0");
 
         const isForecast = d > lastDay;
