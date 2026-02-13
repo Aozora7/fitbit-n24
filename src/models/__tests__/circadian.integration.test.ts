@@ -85,6 +85,64 @@ describe("analyzeCircadian — synthetic data", () => {
   });
 });
 
+// ── Distant data should not corrupt local tau ──────────────────────
+
+describe("analyzeCircadian — locality of tau estimation", () => {
+  it("distant historical data does not pull local tau at end of dataset", () => {
+    // Scenario: 300 days of tau=24.5, then 120 days of tau=25.15
+    // Local tau at the end should track the recent segment (~25.15),
+    // not get pulled toward the historical average (~24.5).
+    const records = generateSyntheticRecords({
+      tauSegments: [
+        { untilDay: 300, tau: 24.5 },
+        { untilDay: 420, tau: 25.15 },
+      ],
+      days: 420,
+      noise: 0.3,
+      seed: 100,
+    });
+
+    const fullResult = analyzeCircadian(records);
+    const lastDay = fullResult.days[fullResult.days.length - 1]!;
+
+    // Local tau at the end should be close to 25.15, not pulled toward 24.5
+    expect(lastDay.localTau).toBeGreaterThan(24.9);
+    expect(Math.abs(lastDay.localTau - 25.15)).toBeLessThan(0.3);
+  });
+
+  it("recent-only subset matches local tau from full dataset", () => {
+    // Generate full dataset with two distinct tau segments
+    const allRecords = generateSyntheticRecords({
+      tauSegments: [
+        { untilDay: 300, tau: 24.5 },
+        { untilDay: 420, tau: 25.15 },
+      ],
+      days: 420,
+      noise: 0.3,
+      seed: 100,
+    });
+
+    // Analyze only last 90 days
+    const recentRecords = allRecords.filter(r => {
+      const dayNum = Math.round(
+        (r.startTime.getTime() - allRecords[0]!.startTime.getTime()) / 86_400_000
+      );
+      return dayNum >= 330;
+    });
+
+    const fullResult = analyzeCircadian(allRecords);
+    const recentResult = analyzeCircadian(recentRecords);
+
+    // Get local tau at the last day of data for both
+    const fullLastDay = fullResult.days[fullResult.days.length - 1]!;
+    const recentLastDay = recentResult.days[recentResult.days.length - 1]!;
+
+    // Local tau from full dataset should be within 0.25h of recent-only analysis
+    // (i.e., distant data shouldn't significantly distort the local estimate)
+    expect(Math.abs(fullLastDay.localTau - recentLastDay.localTau)).toBeLessThan(0.25);
+  });
+});
+
 // ── Real data regression tests ──────────────────────────────────────
 
 describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () => {

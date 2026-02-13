@@ -59,6 +59,7 @@ const OUTLIER_THRESHOLD_HOURS = 8; // only catch genuine data errors
 const SEED_HALF = 21; // half-width of seed search window
 const MIN_SEED_ANCHORS = 4; // minimum anchors to evaluate a seed window
 const EXPANSION_LOOKBACK_DAYS = 30; // how far back to look when expanding
+const REGULARIZATION_HALF = 90; // half-width for regional slope fallback (avoids distant data pollution)
 const SMOOTH_HALF = 7; // post-hoc smoothing: ±7 day neighborhood
 const SMOOTH_SIGMA = 3; // Gaussian sigma for smoothing weights
 const SMOOTH_JUMP_THRESH = 2; // only smooth days with >2h jump to neighbor
@@ -368,7 +369,7 @@ function gaussian(distance: number, sigma: number): number {
 
 // ─── Sliding window evaluation ─────────────────────────────────────
 
-function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number) {
+function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number, sigma: number = GAUSSIAN_SIGMA) {
     const points: { x: number; y: number; w: number }[] = [];
     let qualitySum = 0;
     let qualityCount = 0;
@@ -379,7 +380,7 @@ function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number
         const dist = Math.abs(a.dayNumber - centerDay);
         if (dist > halfWindow) continue;
 
-        const wDist = gaussian(dist, GAUSSIAN_SIGMA);
+        const wDist = gaussian(dist, sigma);
         const w = a.weight * wDist;
         if (w < 1e-6) continue;
 
@@ -586,11 +587,18 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
             }
         }
 
-        // Regularize local slope toward global estimate in weak windows
+        // Regularize local slope toward a regional estimate (not global) in weak windows.
+        // Using a regional window prevents distant historical data from pulling local tau.
         const expectedPts = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
         const slopeConf = Math.min(1, result.pointsUsed / expectedPts) *
                           (1 - Math.min(1, result.residualMAD / 4));
-        const regularizedSlope = slopeConf * result.slope + (1 - slopeConf) * globalFit.slope;
+        const regionalFit = evaluateWindow(anchors, d, REGULARIZATION_HALF);
+        // Use regional slope when available and plausible; fall back to global
+        // if regional is sparse or corrupted by unwrapping gaps across data holes
+        const useRegional = regionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
+                            regionalFit.slope >= -0.5 && regionalFit.slope <= 2.0;
+        const fallbackSlope = useRegional ? regionalFit.slope : globalFit.slope;
+        const regularizedSlope = slopeConf * result.slope + (1 - slopeConf) * fallbackSlope;
         const localTau = 24 + regularizedSlope;
 
         // Use the regression's fit at the data centroid, then extrapolate
