@@ -1,6 +1,9 @@
 # Project structure
 
 ```
+cli/
+  analyze.ts                        CLI entry point: read JSON file, run circadian analysis, print stats
+
 src/
   main.tsx                          Entry point, provider hierarchy (AuthProvider -> AppProvider -> App)
   App.tsx                           Layout shell (no logic, just component composition)
@@ -18,7 +21,7 @@ src/
     useAuth.ts                      Auth hook exposing token, userId, signIn, signOut
 
   data/
-    loadLocalData.ts                Multi-format JSON import (v1.2 and exported format detection)
+    loadLocalData.ts                Multi-format JSON import (parseSleepData pure fn + loadLocalData fetch wrapper)
     useSleepData.ts                 Sleep record state hook (set, append, import), parseApiRecords()
     useFitbitData.ts                Orchestrator hook: cache-first fetch, export, abort, clear
     sleepCache.ts                   IndexedDB caching layer (per-user record storage)

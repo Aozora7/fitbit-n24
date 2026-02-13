@@ -74,7 +74,12 @@ The app exports raw API records wrapped in `{ "sleep": [...] }` when data was fe
 
 ### `loadLocalData.ts`
 
-Auto-detects and parses multiple JSON structures:
+Exposes two functions:
+
+- **`parseSleepData(data: unknown): SleepRecord[]`** — Pure function (no browser APIs) that takes a JSON-parsed value, detects its format, parses records, sorts by `startTime` ascending, and deduplicates by `logId`. Used by both the browser app and the Node.js CLI.
+- **`loadLocalData(url: string): Promise<SleepRecord[]>`** — Thin browser wrapper that calls `fetch(url)`, parses JSON, and delegates to `parseSleepData()`.
+
+Auto-detects multiple JSON structures:
 
 1. **Single API page**: `{ "sleep": [...] }`
 2. **Array of API pages**: `[ { "sleep": [...] }, ... ]`
@@ -84,8 +89,6 @@ For each record, format detection:
 - `"durationMs"` present → internal exported format (re-hydrate Date objects)
 - `"levels"` or `"type"` present → v1.2 API format
 - Otherwise → error (v1 format is not supported)
-
-Records are sorted by `startTime` ascending and deduplicated by `logId`.
 
 ### `useSleepData.ts`
 
@@ -325,6 +328,19 @@ The Rayleigh test significance threshold for p < 0.01: `R²_crit = -ln(0.01) / N
 ## Tooltip interaction
 
 The `getTooltipInfo` callback converts mouse coordinates to row index and hour, then searches for a matching sleep block. For v1.2 records with stage data, the tooltip shows a breakdown: `D:78 L:157 R:63 W:81min`. It also shows the quality score percentage. Hovering over the circadian overlay shows the estimated night window, local tau, and confidence level (and whether it's a forecast). The tooltip is rendered as a fixed-position React div overlaying the canvas.
+
+## CLI analysis tool
+
+`cli/analyze.ts` provides a Node.js entry point for running the analysis pipeline outside the browser. It uses `tsx` (TypeScript Execute, a dev dependency) to run TypeScript directly in Node.js without a compile step.
+
+```
+npx tsx cli/analyze.ts <sleep-data.json>
+# or: npm run analyze -- <sleep-data.json>
+```
+
+The CLI reads a JSON file with `fs.readFileSync`, parses it with `parseSleepData()` (the same pure function the browser app uses), and runs `analyzeCircadian()` to print summary statistics. It serves as a debugging harness — copy and modify it to import additional model functions, log intermediate values, or test algorithm changes without launching the browser.
+
+A separate `tsconfig.cli.json` provides Node.js-compatible settings (`module: "NodeNext"`, `moduleResolution: "NodeNext"`) for type-checking CLI code. The main `tsconfig.json` and `npm run build` remain unchanged (browser-only).
 
 ## Tailwind CSS v4
 

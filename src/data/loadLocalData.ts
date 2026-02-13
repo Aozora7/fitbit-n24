@@ -76,15 +76,14 @@ function parseAnyRecord(raw: Record<string, unknown>): SleepRecord {
 }
 
 /**
- * Load sleep data from a local JSON file. Handles multiple formats:
+ * Parse sleep data from a JSON-parsed value. Handles multiple formats:
  * - v1.2 single-page: { sleep: [...], pagination: {...} }
  * - v1.2 multi-page: [ { sleep: [...], pagination: {...} }, ... ]
  * - Flat array of records: [ { dateOfSleep, ... }, ... ]
+ *
+ * Pure function — no browser APIs required.
  */
-export async function loadLocalData(url: string): Promise<SleepRecord[]> {
-  const response = await fetch(url);
-  const data: unknown = await response.json();
-
+export function parseSleepData(data: unknown): SleepRecord[] {
   let rawRecords: Record<string, unknown>[];
 
   if (Array.isArray(data)) {
@@ -128,4 +127,13 @@ export async function loadLocalData(url: string): Promise<SleepRecord[]> {
     seen.add(r.logId);
     return true;
   });
+}
+
+/**
+ * Load sleep data from a local JSON file via fetch, then parse.
+ */
+export async function loadLocalData(url: string): Promise<SleepRecord[]> {
+  const response = await fetch(url);
+  const data: unknown = await response.json();
+  return parseSleepData(data);
 }
