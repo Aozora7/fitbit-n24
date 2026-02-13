@@ -25,12 +25,23 @@ src/
     useSleepData.ts                 Sleep record state hook (set, append, import), parseApiRecords()
     useFitbitData.ts                Orchestrator hook: cache-first fetch, export, abort, clear
     sleepCache.ts                   IndexedDB caching layer (per-user record storage)
+    __tests__/
+      loadLocalData.test.ts         Parsing all input formats, deduplication, sort order, error handling
 
   models/
     actogramData.ts                 Actogram row building (buildActogramRows, buildTauRows)
     circadian.ts                    Circadian period estimation (anchor classification, sliding-window robust regression)
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)
     lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test)
+    __tests__/
+      fixtures/
+        synthetic.ts                Seeded synthetic SleepRecord generator (configurable tau, noise, gaps)
+        loadRealData.ts             Cached real data loader (skips gracefully if file missing)
+      circadian.internals.test.ts   Unit tests for circadian internal helpers (classifyAnchor, regression, unwrapping)
+      circadian.integration.test.ts Full pipeline tests (synthetic + real data regression)
+      calculateSleepScore.test.ts   Sleep score regression model tests
+      lombScargle.test.ts           Periodogram peak detection tests
+      actogramData.test.ts          Row building, midnight crossings, tau-mode tests
 
   components/
     Header.tsx                      App header: record count, circadian stats (tau, drift, shift, avg sleep), privacy modal

@@ -19,7 +19,6 @@ export default function DateRangeSlider() {
 
     // Persisted preset: number of days (30/90/180/365), 0 = All, null = custom/no preset
     const [savedPreset, setSavedPreset] = usePersistedState<number | null>("viz.datePreset", null);
-    console.log("Saved preset:", savedPreset);
 
     // Sync local state when committed values change externally
     useEffect(() => {

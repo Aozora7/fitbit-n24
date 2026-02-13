@@ -621,3 +621,19 @@ function computeMedianSpacing(anchors: Anchor[]): number {
     spacings.sort((a, b) => a - b);
     return spacings[Math.floor(spacings.length / 2)]!;
 }
+
+/** @internal Exported for testing only. */
+export const _internals = {
+    classifyAnchor,
+    sleepMidpointHour,
+    localPairwiseUnwrap,
+    findSeedRegion,
+    weightedLinearRegression,
+    robustWeightedRegression,
+    gaussian,
+    evaluateWindow,
+    computeMedianSpacing,
+    expandFromRegion,
+    snapToNeighbors,
+    unwrapAnchorsFromSeed,
+};
