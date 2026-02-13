@@ -306,6 +306,13 @@ After all per-day predictions are computed, a two-pass post-hoc smoothing correc
 3. **Prediction-based residual smoothing**: Gaussian-weighted average of neighboring predictions' residuals from global trend (`sigma=3`, ±7 days).
 4. Iterate up to 3 times until no jumps exceed the threshold.
 
+**Pass 3 — Forward-bridge backward-moving segments** (for sleep disruptions):
+1. Compute normalized overlay midpoints and circular day-to-day deltas.
+2. Flag days where the daily shift deviates **0.5h+** backward from the expected global drift direction.
+3. Find contiguous runs of **3+ backward days**.
+4. For qualifying runs, replace overlay with forward circular interpolation between the entry point (last non-backward day before the run) and exit point (first non-backward day after). Sanity check: skip if the interpolation rate exceeds 3h/day.
+5. This ensures the overlay always advances in the circadian drift direction through disrupted sleep periods, where off-rhythm anchors would otherwise pull the regression backward.
+
 ### Forecast extrapolation
 
 When forecast days are requested, the regression from the last data day (the "edge fit") is frozen and extrapolated forward. Forecast confidence decays exponentially: `edgeBaseConfidence * exp(-0.1 * daysFromEdge)`, reaching ~50% at 7 days and ~5% at 30 days. The forecast overlay is drawn in amber (`rgba(251, 191, 36, alpha)`) to distinguish it from the purple historical overlay.

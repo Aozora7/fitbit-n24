@@ -95,9 +95,16 @@ for (const d of targetDays) {
 // Show what the regression looks like for specific days in the range
 console.log(`\n--- Local regression details (sampled) ---`);
 
-// Reconstruct anchors for evaluateWindow (need full anchor set)
+// Reconstruct anchors for evaluateWindow (need full anchor set).
+// evaluateWindow expects internal Anchor objects with a `record` property
+// (used only for avgDuration on tier A). Build stubs with default duration.
 const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 const firstDateMs = new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime();
+
+const internalAnchors = analysis.anchors.map(a => ({
+  ...a,
+  record: { durationHours: 8 } as SleepRecord,
+}));
 
 // Compute day numbers for the target dates
 const startDayNum = Math.round((new Date(startDate + "T00:00:00").getTime() - firstDateMs) / 86_400_000);
@@ -113,7 +120,7 @@ for (const d of sampleDays) {
   dayDate.setDate(dayDate.getDate() + d);
   const dateStr = dayDate.getFullYear() + "-" + String(dayDate.getMonth() + 1).padStart(2, "0") + "-" + String(dayDate.getDate()).padStart(2, "0");
 
-  const result = evaluateWindow(analysis.anchors, d, WINDOW_HALF);
+  const result = evaluateWindow(internalAnchors, d, WINDOW_HALF);
   const pred = result.slope * d + result.intercept;
   const normPred = ((pred % 24) + 24) % 24;
 

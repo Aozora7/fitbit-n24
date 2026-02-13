@@ -816,6 +816,93 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         }
     }
 
+    // Pass 3: Forward-bridge backward-moving overlay segments
+    // When disrupted sleep pulls the overlay backward (against the global
+    // drift direction) for several consecutive days, replace with forward
+    // circular interpolation between entry and exit points. The circadian
+    // clock doesn't run backward, so backward overlay movement indicates
+    // the regression is tracking off-rhythm sleep rather than the phase.
+    {
+        const BACKWARD_DEVIATION = 0.5; // flag if daily shift deviates 0.5h+ backward from expected
+        const BACKWARD_MIN_RUN = 3; // min consecutive backward days to trigger bridging
+        const MAX_BRIDGE_RATE = 3; // max h/day interpolation rate (sanity check)
+
+        const normMids: number[] = days.map(d =>
+            (((d.nightStartHour + d.nightEndHour) / 2) % 24 + 24) % 24
+        );
+
+        const expectedDelta = globalFit.slope;
+        const driftSign = expectedDelta >= 0 ? 1 : -1;
+
+        // Flag days where the overlay moves backward relative to expected
+        const isBackward: boolean[] = new Array(days.length).fill(false);
+        for (let i = 1; i < days.length; i++) {
+            if (days[i]!.isForecast || days[i - 1]!.isForecast) continue;
+            let delta = normMids[i]! - normMids[i - 1]!;
+            if (delta > 12) delta -= 24;
+            if (delta < -12) delta += 24;
+            if ((delta - expectedDelta) * driftSign < -BACKWARD_DEVIATION) {
+                isBackward[i] = true;
+            }
+        }
+
+        // Find contiguous backward runs and forward-interpolate
+        let bRunStart = -1;
+        for (let i = 0; i <= days.length; i++) {
+            const back = i < days.length && isBackward[i];
+            if (back && bRunStart < 0) bRunStart = i;
+            else if (!back && bRunStart >= 0) {
+                if (i - bRunStart >= BACKWARD_MIN_RUN) {
+                    const entryIdx = bRunStart - 1;
+                    const exitIdx = i;
+                    if (entryIdx >= 0 && exitIdx < days.length && !days[exitIdx]!.isForecast) {
+                        const entryMid = normMids[entryIdx]!;
+                        const exitMid = normMids[exitIdx]!;
+                        const span = exitIdx - entryIdx;
+
+                        // Forward distance: always in drift direction
+                        let forwardDist: number;
+                        if (driftSign > 0) {
+                            forwardDist = ((exitMid - entryMid) % 24 + 24) % 24;
+                        } else {
+                            forwardDist = -(((entryMid - exitMid) % 24 + 24) % 24);
+                        }
+
+                        // Sanity: skip if interpolation rate is implausible
+                        if (Math.abs(forwardDist) / span <= MAX_BRIDGE_RATE && forwardDist !== 0) {
+                            for (let j = bRunStart; j < exitIdx; j++) {
+                                if (days[j]!.isForecast) continue;
+                                const t = (j - entryIdx) / span;
+                                const interpolatedMid = ((entryMid + t * forwardDist) % 24 + 24) % 24;
+                                const halfDur = rawHalfDur[j]!;
+                                days[j]!.nightStartHour = interpolatedMid - halfDur;
+                                days[j]!.nightEndHour = interpolatedMid + halfDur;
+                            }
+                        }
+                    }
+                }
+                bRunStart = -1;
+            }
+        }
+    }
+
+    // Recompute forecast days to maintain continuity with the (now smoothed)
+    // last data day. Smoothing passes modify data days but skip forecasts,
+    // so the frozen edge regression may no longer connect smoothly.
+    if (extraDays > 0) {
+        const lastDataMid = (((days[lastDay]!.nightStartHour + days[lastDay]!.nightEndHour) / 2) % 24 + 24) % 24;
+        const edgeSlopeConf = Math.min(1, edgeResult.pointsUsed / (medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10)) *
+                              (1 - Math.min(1, edgeResult.residualMAD / 4));
+        const edgeSlope = edgeSlopeConf * edgeResult.slope + (1 - edgeSlopeConf) * globalFit.slope;
+        for (let d = lastDay + 1; d <= totalDays; d++) {
+            const dist = d - lastDay;
+            const forecastMid = ((lastDataMid + edgeSlope * dist) % 24 + 24) % 24;
+            const halfDur = rawHalfDur[d]!;
+            days[d]!.nightStartHour = forecastMid - halfDur;
+            days[d]!.nightEndHour = forecastMid + halfDur;
+        }
+    }
+
     // Compute globalTau from overlay midpoints (not from averaged localTau,
     // which uses regularized slopes and diverges from the actual overlay).
     // Unwrap the final overlay midpoints and fit a weighted regression to
