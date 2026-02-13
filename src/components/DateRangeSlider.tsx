@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useAppContext } from "../AppContext";
+import { useAppContext, usePersistedState } from "../AppContext";
 
 /**
  * Dual-thumb range slider for date filtering.
@@ -17,13 +17,17 @@ export default function DateRangeSlider() {
     const [localEnd, setLocalEnd] = useState(endDay);
     const draggingRef = useRef(false);
 
+    // Persisted preset: number of days (30/90/180/365), 0 = All, null = custom/no preset
+    const [savedPreset, setSavedPreset] = usePersistedState<number | null>("viz.datePreset", null);
+    console.log("Saved preset:", savedPreset);
+
     // Sync local state when committed values change externally
     useEffect(() => {
-        if (!draggingRef.current) {
+        if (!draggingRef.current && savedPreset === null) {
             setLocalStart(startDay);
             setLocalEnd(endDay);
         }
-    }, [startDay, endDay]);
+    }, [startDay, endDay, savedPreset]);
 
     const handleStartChange = useCallback(
         (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,7 +50,8 @@ export default function DateRangeSlider() {
     const commitValues = useCallback(() => {
         draggingRef.current = false;
         handleFilterChange(localStart, localEnd);
-    }, [localStart, localEnd, handleFilterChange]);
+        setSavedPreset(null);
+    }, [localStart, localEnd, handleFilterChange, setSavedPreset]);
 
     // Compute the date label for a given day index
     const dayLabel = useCallback(
@@ -79,6 +84,48 @@ export default function DateRangeSlider() {
         return marks;
     }, [firstDateStr, totalDays]);
 
+    const presets = [
+        { days: 30, label: "30d" },
+        { days: 60, label: "60d" },
+        { days: 90, label: "90d" },
+        { days: 180, label: "180d" },
+        { days: 365, label: "1y" }
+    ];
+
+    const applyPreset = useCallback(
+        (days: number) => {
+            const start = Math.max(0, totalDays - days);
+            setLocalStart(start);
+            setLocalEnd(totalDays);
+            handleFilterChange(start, totalDays);
+            setSavedPreset(days);
+        },
+        [totalDays, handleFilterChange, setSavedPreset]
+    );
+
+    const applyAll = useCallback(() => {
+        setLocalStart(0);
+        setLocalEnd(totalDays);
+        handleFilterChange(0, totalDays);
+        setSavedPreset(0);
+    }, [totalDays, handleFilterChange, setSavedPreset]);
+
+    // Reapply saved preset when totalDays becomes available (e.g. on reload/data fetch)
+    const presetAppliedRef = useRef(false);
+    useEffect(() => {
+        if (totalDays > 1 && savedPreset !== null && !presetAppliedRef.current) {
+            presetAppliedRef.current = true;
+            if (savedPreset === 0) {
+                handleFilterChange(0, totalDays);
+            } else {
+                const start = Math.max(0, totalDays - savedPreset);
+                setLocalStart(start);
+                setLocalEnd(totalDays);
+                handleFilterChange(start, totalDays);
+            }
+        }
+    }, [totalDays, savedPreset, handleFilterChange]);
+
     if (totalDays <= 1) return null;
 
     // Fill percentage for the active range highlight
@@ -87,24 +134,42 @@ export default function DateRangeSlider() {
 
     const isFiltered = localStart > 0 || localEnd < totalDays;
 
+    // Check which preset is active (end at totalDays and start matches a preset)
+    const activePreset =
+        localEnd === totalDays
+            ? (presets.find(p => localStart === Math.max(0, totalDays - p.days))?.days ?? (localStart === 0 ? 0 : null)) // 0 means "All"
+            : null;
+
     return (
         <div className="mt-2">
-            {/* Date labels */}
+            {/* Date labels + preset buttons */}
             <div className="mb-1 flex items-center justify-between text-xs text-gray-400">
                 <span className={isFiltered ? "text-blue-400" : ""}>{dayLabel(localStart)}</span>
-                {isFiltered && (
+                <div className="flex gap-1">
+                    {presets
+                        .filter(p => p.days < totalDays)
+                        .map(p => (
+                            <button
+                                key={p.days}
+                                onClick={() => applyPreset(p.days)}
+                                disabled={disabled}
+                                className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
+                                    activePreset === p.days ? "bg-blue-600/30 text-blue-400" : "text-gray-500 hover:text-gray-300"
+                                }`}
+                            >
+                                {p.label}
+                            </button>
+                        ))}
                     <button
-                        onClick={() => {
-                            setLocalStart(0);
-                            setLocalEnd(totalDays);
-                            handleFilterChange(0, totalDays);
-                        }}
-                        className="text-xs text-gray-500 hover:text-gray-300"
+                        onClick={applyAll}
                         disabled={disabled}
+                        className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
+                            activePreset === 0 ? "bg-blue-600/30 text-blue-400" : "text-gray-500 hover:text-gray-300"
+                        }`}
                     >
-                        Reset filter
+                        All
                     </button>
-                )}
+                </div>
                 <span className={isFiltered ? "text-blue-400" : ""}>{dayLabel(localEnd)}</span>
             </div>
 
