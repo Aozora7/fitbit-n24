@@ -11,6 +11,18 @@ function mulberry32(seed: number) {
   };
 }
 
+/** Box-Muller Gaussian sample from a seeded RNG */
+function gaussianSample(rng: () => number): number {
+  const u1 = rng();
+  const u2 = rng();
+  return Math.sqrt(-2 * Math.log(u1 + 1e-10)) * Math.cos(2 * Math.PI * u2);
+}
+
+export interface TauSegment {
+  untilDay: number;
+  tau: number;
+}
+
 export interface SyntheticOptions {
   /** Circadian period in hours (default 24.5) */
   tau?: number;
@@ -28,47 +40,95 @@ export interface SyntheticOptions {
   seed?: number;
   /** Sleep quality score (default 0.8) */
   quality?: number;
+  /** Piecewise tau segments — overrides tau when provided */
+  tauSegments?: TauSegment[];
+  /** Fraction of days that also get a nap record (0-1, default 0) */
+  napFraction?: number;
+  /** Fraction of main sleeps shifted off-phase (0-1, default 0) */
+  outlierFraction?: number;
+  /** Hours off-phase for outlier sleeps (default 6) */
+  outlierOffset?: number;
+}
+
+/**
+ * Compute the true midpoint hour (unwrapped, relative to day 0 midnight)
+ * for a given day, accounting for tauSegments or constant tau.
+ */
+export function computeTrueMidpoint(day: number, opts: SyntheticOptions = {}): number {
+  const { startMidpoint = 3, tau = 24.5, tauSegments } = opts;
+
+  if (!tauSegments || tauSegments.length === 0) {
+    return startMidpoint + day * (tau - 24);
+  }
+
+  // Integrate piecewise drift
+  let midpoint = startMidpoint;
+  let prevDay = 0;
+  for (const seg of tauSegments) {
+    const segEnd = Math.min(day, seg.untilDay);
+    if (prevDay >= segEnd) { prevDay = seg.untilDay; continue; }
+    midpoint += (segEnd - prevDay) * (seg.tau - 24);
+    prevDay = segEnd;
+    if (prevDay >= day) break;
+  }
+  return midpoint;
+}
+
+/** Get drift (tau - 24) for a given day from tauSegments or constant tau */
+function getDrift(day: number, opts: SyntheticOptions): number {
+  const { tau = 24.5, tauSegments } = opts;
+  if (!tauSegments || tauSegments.length === 0) return tau - 24;
+  for (const seg of tauSegments) {
+    if (day < seg.untilDay) return seg.tau - 24;
+  }
+  return tauSegments[tauSegments.length - 1]!.tau - 24;
 }
 
 /**
  * Generate synthetic SleepRecord[] with a known tau for testing.
- * All records are isMainSleep=true with stages-type data.
+ * Supports variable tau (tauSegments), naps, and outliers.
  */
 export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepRecord[] {
   const {
-    tau = 24.5,
     days = 90,
     baseDuration = 8,
     noise = 0.5,
     gapFraction = 0,
-    startMidpoint = 3,
     seed = 42,
     quality = 0.8,
+    napFraction = 0,
+    outlierFraction = 0,
+    outlierOffset = 6,
   } = opts;
 
   const rng = mulberry32(seed);
   const records: SleepRecord[] = [];
   const baseDate = new Date("2024-01-01T00:00:00");
-  const drift = tau - 24; // hours per day
+  let nextLogId = 1000;
 
   for (let d = 0; d < days; d++) {
     // Skip this day randomly
-    if (gapFraction > 0 && rng() < gapFraction) continue;
+    if (gapFraction > 0 && rng() < gapFraction) {
+      // Consume RNG slots to keep determinism regardless of gap outcomes
+      rng(); rng(); rng();
+      continue;
+    }
 
-    // Box-Muller for Gaussian noise
-    const u1 = rng();
-    const u2 = rng();
-    const gaussianNoise = Math.sqrt(-2 * Math.log(u1 + 1e-10)) * Math.cos(2 * Math.PI * u2);
+    const midpointTrue = computeTrueMidpoint(d, opts);
+    const midpointHour = midpointTrue + gaussianSample(rng) * noise;
 
-    const midpointHour = startMidpoint + d * drift + gaussianNoise * noise;
+    // Outlier shift
+    const isOutlier = outlierFraction > 0 && rng() < outlierFraction;
+    const finalMidpoint = isOutlier ? midpointHour + outlierOffset : midpointHour;
+
     const durationHours = baseDuration + (rng() - 0.5) * 1; // ±0.5h variation
     const halfDur = durationHours / 2;
 
     const dayDate = new Date(baseDate);
     dayDate.setDate(dayDate.getDate() + d);
 
-    const startMs = dayDate.getTime() + (midpointHour - halfDur) * 3_600_000;
-    const endMs = dayDate.getTime() + (midpointHour + halfDur) * 3_600_000;
+    const startMs = dayDate.getTime() + (finalMidpoint - halfDur) * 3_600_000;
+    const endMs = dayDate.getTime() + (finalMidpoint + halfDur) * 3_600_000;
     const durationMs = endMs - startMs;
 
     const dateStr =
@@ -79,7 +139,7 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
       String(dayDate.getDate()).padStart(2, "0");
 
     records.push({
-      logId: 1000 + d,
+      logId: nextLogId++,
       dateOfSleep: dateStr,
       startTime: new Date(startMs),
       endTime: new Date(endMs),
@@ -91,6 +151,30 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
       isMainSleep: true,
       sleepScore: quality,
     });
+
+    // Generate nap for this day
+    if (napFraction > 0 && rng() < napFraction) {
+      const napDuration = 2 + rng(); // 2-3 hours
+      const napMidpoint = midpointTrue + 12 + gaussianSample(rng) * 2; // ~12h offset, noisy
+      const napHalfDur = napDuration / 2;
+      const napStartMs = dayDate.getTime() + (napMidpoint - napHalfDur) * 3_600_000;
+      const napEndMs = dayDate.getTime() + (napMidpoint + napHalfDur) * 3_600_000;
+      const napDurMs = napEndMs - napStartMs;
+
+      records.push({
+        logId: nextLogId++,
+        dateOfSleep: dateStr,
+        startTime: new Date(napStartMs),
+        endTime: new Date(napEndMs),
+        durationMs: napDurMs,
+        durationHours: napDurMs / 3_600_000,
+        efficiency: 80,
+        minutesAsleep: Math.round((napDurMs / 60_000) * 0.85),
+        minutesAwake: Math.round((napDurMs / 60_000) * 0.15),
+        isMainSleep: false,
+        sleepScore: 0.5,
+      });
+    }
   }
 
   // Sort by start time

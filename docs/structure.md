@@ -39,6 +39,7 @@ src/
         loadRealData.ts             Cached real data loader (skips gracefully if file missing)
       circadian.internals.test.ts   Unit tests for circadian internal helpers (classifyAnchor, regression, unwrapping)
       circadian.integration.test.ts Full pipeline tests (synthetic + real data regression)
+      circadian.scoring.test.ts   Scoring benchmarks (tau sweep, phase accuracy, noise/gap degradation, variable tau, naps, outliers, forecast, confidence)
       calculateSleepScore.test.ts   Sleep score regression model tests
       lombScargle.test.ts           Periodogram peak detection tests
       actogramData.test.ts          Row building, midnight crossings, tau-mode tests
