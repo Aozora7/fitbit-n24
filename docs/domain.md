@@ -94,11 +94,17 @@ Records are classified into three tiers based on duration and quality:
 - **Tier B** : Moderate-confidence anchors
 - **Tier C** : Used only for gap-filling when the maximum gap between consecutive A+B anchor dates exceeds 14 days
 
-When multiple records exist for the same calendar day, only the highest-quality one is kept.
+When multiple records exist for the same calendar day, only the highest-quality one is kept. Naps (`isMainSleep = false`) are downweighted by 0.15× to prevent them from dominating regression or phase unwrapping.
 
 ### Outlier rejection
 
 After initial anchor selection, a global linear regression is fit and records with residuals exceeding 8 hours are removed. This catches forced-schedule sleeps that passed the duration and quality thresholds but have midpoints far from the true circadian phase.
+
+### Seed-based phase unwrapping
+
+Sleep midpoints require "unwrapping" to remove 24-hour wraparound ambiguity — the algorithm must decide whether a jump from hour 23 to hour 1 represents a 2-hour forward shift or a 22-hour backward shift. The naive approach of sequential pairwise unwrapping from the first anchor is fragile: if early data contains noisy patterns (scattered naps, polyphasic sleep, manual logs), the algorithm misinterprets noise as 24h wraps, producing a cascading error that corrupts the entire trajectory.
+
+The seed-based approach solves this by first scanning the timeline with a sliding window to find the most internally consistent region — scored on residual spread, anchor density, weight, and slope plausibility. This "seed" region is unwrapped safely via pairwise comparison, then the algorithm expands outward (forward and backward) from the seed. Each new anchor is snapped to within 12 hours of a prediction derived from already-unwrapped neighbors, weighted by Gaussian distance decay. This means noisy early data is constrained by a clean interior region rather than contaminating everything downstream.
 
 ### Sliding-window weighted regression
 

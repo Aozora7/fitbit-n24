@@ -244,25 +244,29 @@ Records are classified into three tiers based on duration and quality score:
 | B | >= 5h | >= 0.60 | 0.4 | Moderate-confidence |
 | C | >= 4h | >= 0.40 | 0.1 | Gap-fill only |
 
-The effective weight for each anchor is `baseWeight * quality * durFactor`, where `durFactor = min(1, (durationHours - 4) / 5)`. This means longer, higher-quality sleeps receive more influence in the regression.
+The effective weight for each anchor is `baseWeight * quality * durFactor`, where `durFactor = min(1, (durationHours - 4) / 5)`. This means longer, higher-quality sleeps receive more influence in the regression. Naps (`isMainSleep = false`) receive an additional 0.15× weight multiplier — they still contribute data but cannot dominate regression or unwrapping. This prevents false phase jumps when a main sleep and a nap on the same day both qualify as anchors.
 
 Tier C anchors are only included when the maximum gap between consecutive A+B anchor dates exceeds 14 days, indicating sparse coverage that needs filling.
 
 When multiple qualifying records exist for the same `dateOfSleep`, only the one with the highest weight is kept.
 
-### Step 3: Midpoint calculation and phase unwrapping
+### Step 3: Midpoint calculation and seed-based phase unwrapping
 
 For each anchor, the sleep midpoint is computed as fractional hours from the first record's midnight (absolute time), paired with a day index for regression.
 
-The midpoint sequence is unwrapped using a three-pass algorithm to handle 24-hour wraparound:
+The midpoint sequence is unwrapped using a seed-based algorithm to handle 24-hour wraparound. Sequential pairwise unwrapping from the first anchor is vulnerable to cascading errors when early data is noisy (e.g. scattered naps, polyphasic sleep, manual logs) — a noisy start can be misinterpreted as 24h wraps, producing a catastrophically wrong trajectory. The seed-based approach avoids this by finding a high-confidence region first.
 
-1. **Sequential pairwise unwrap**: If consecutive midpoints differ by more than 12 hours, 24h is added or subtracted to maintain continuity. This produces a rough trajectory but can accumulate cascading errors.
-2. **Global linear fit snap**: A preliminary weighted linear regression is fit to the rough trajectory. Each anchor's midpoint is snapped to within 12h of its predicted value. This corrects large cascading errors from pass 1.
-3. **Rolling 30-day local fit**: For each anchor, a local regression is fit using only preceding anchors within 30 days. The anchor is snapped to within 12h of this local prediction. This follows local trends through periods where tau changes, which the global fit cannot capture.
+1. **Seed region selection** (`findSeedRegion`): A 42-day window is slid across the timeline (~30 evaluation points). At each position, anchors are gathered, locally pairwise-unwrapped on a copy, and fit with weighted linear regression. Each window is scored on a weighted combination of: residual MAD (35%), anchor density (25%), average anchor weight (25%), and slope plausibility (15%). Slope plausibility penalizes extreme slopes outside the -0.5 to +3.0 h/day range. The highest-scoring window becomes the seed. For short datasets (<42 days), the entire anchor array is used as the seed.
+
+2. **Seed unwrapping** (Phase A): The seed region is pairwise-unwrapped. This is safe because the seed was selected for internal consistency.
+
+3. **Forward expansion** (Phase B): Starting from the seed's end, each subsequent anchor is snapped to within 12h of a prediction derived from already-unwrapped neighbors within 30 days. Neighbors are Gaussian distance-weighted (σ=14 days). With 2+ neighbors, a weighted linear regression predicts the midpoint. With 1 neighbor, a simple 12h snap is used. With 0 neighbors (very sparse data), the anchor is left as-is.
+
+4. **Backward expansion** (Phase C): Same as forward expansion but proceeding from the seed's start toward the beginning of the data. This allows noisy early data to be constrained by the clean seed region rather than propagating errors forward.
 
 ### Step 4: Outlier rejection
 
-A preliminary global fit is computed across all anchors. Records with residuals exceeding **8 hours** are flagged as outliers. These are removed only if they constitute less than 15% of total anchors, then the remaining anchors are re-unwrapped.
+A preliminary global fit is computed across all anchors. Records with residuals exceeding **8 hours** are flagged as outliers. These are removed only if they constitute less than 15% of total anchors, then the remaining anchors are re-unwrapped using the same seed-based algorithm.
 
 ### Step 5: Sliding-window robust regression
 

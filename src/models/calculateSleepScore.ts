@@ -38,6 +38,9 @@ export function calculateSleepScore(record: RawSleepRecordV12) {
     let wakePct;
     if (record.type === "stages" && summary && summary.wake) {
         wakePct = record.timeInBed > 0 ? summary.wake.minutes / record.timeInBed : 0;
+    } else if (record.logType === "manual") {
+        // Manual logs contain no wake data, assuming average wake percentage
+        wakePct = 0.15;
     } else {
         wakePct = record.timeInBed > 0 ? record.minutesAwake / record.timeInBed : 0;
     }

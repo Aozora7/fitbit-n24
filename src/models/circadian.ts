@@ -56,6 +56,9 @@ const MAX_WINDOW_HALF = 60; // expand to 120 days if sparse
 const MIN_ANCHORS_PER_WINDOW = 6;
 const GAUSSIAN_SIGMA = 14; // half-weight at 14 days from center
 const OUTLIER_THRESHOLD_HOURS = 8; // only catch genuine data errors
+const SEED_HALF = 21; // half-width of seed search window
+const MIN_SEED_ANCHORS = 4; // minimum anchors to evaluate a seed window
+const EXPANSION_LOOKBACK_DAYS = 30; // how far back to look when expanding
 
 // ─── Anchor classification ─────────────────────────────────────────
 
@@ -87,7 +90,12 @@ function classifyAnchor(record: SleepRecord): AnchorCandidate | null {
     }
 
     const durFactor = Math.min(1, (dur - 4) / 5);
-    const weight = baseWeight * quality * durFactor;
+    let weight = baseWeight * quality * durFactor;
+
+    // Naps still contribute data but can't dominate regression or unwrapping
+    if (!record.isMainSleep) {
+        weight *= 0.15;
+    }
 
     return { record, quality, tier, weight };
 }
@@ -102,59 +110,152 @@ function sleepMidpointHour(record: SleepRecord, firstDateMs: number): number {
 
 // ─── Unwrapping ────────────────────────────────────────────────────
 
-function unwrapAnchors(anchors: Anchor[]): void {
-    if (anchors.length < 2) return;
-
-    // Pass 1: Sequential pairwise unwrap (rough trajectory)
-    for (let i = 1; i < anchors.length; i++) {
-        const prev = anchors[i - 1]!.midpointHour;
-        let curr = anchors[i]!.midpointHour;
+/** Pairwise unwrap on a copy — returns new midpoints without mutating input */
+function localPairwiseUnwrap(midpoints: number[]): number[] {
+    const out = midpoints.slice();
+    for (let i = 1; i < out.length; i++) {
+        let curr = out[i]!;
+        const prev = out[i - 1]!;
         while (curr - prev > 12) curr -= 24;
         while (prev - curr > 12) curr += 24;
-        anchors[i]!.midpointHour = curr;
+        out[i] = curr;
+    }
+    return out;
+}
+
+/** Find the most consistent region to use as unwrapping seed */
+function findSeedRegion(anchors: Anchor[]): { startIdx: number; endIdx: number; slope: number; intercept: number } {
+    const totalSpan = anchors[anchors.length - 1]!.dayNumber - anchors[0]!.dayNumber;
+
+    // Short dataset fallback: use everything
+    if (totalSpan < SEED_HALF * 2) {
+        const mids = localPairwiseUnwrap(anchors.map(a => a.midpointHour));
+        const pts = anchors.map((a, i) => ({ x: a.dayNumber, y: mids[i]!, w: a.weight }));
+        const fit = weightedLinearRegression(pts);
+        return { startIdx: 0, endIdx: anchors.length - 1, slope: fit.slope, intercept: fit.intercept };
     }
 
-    // Pass 2: Global linear fit — snap each anchor within 12h of prediction
-    // Fixes large cascading errors from Pass 1
-    const roughPoints = anchors.map(a => ({
-        x: a.dayNumber,
-        y: a.midpointHour,
-        w: a.weight
-    }));
-    const rough = weightedLinearRegression(roughPoints);
+    const firstDay = anchors[0]!.dayNumber;
+    const lastDay = anchors[anchors.length - 1]!.dayNumber;
+    const step = Math.max(1, Math.floor((lastDay - firstDay - SEED_HALF * 2) / 30) || 1);
 
-    for (let i = 0; i < anchors.length; i++) {
-        const predicted = rough.slope * anchors[i]!.dayNumber + rough.intercept;
-        let mid = anchors[i]!.midpointHour;
-        while (mid - predicted > 12) mid -= 24;
-        while (predicted - mid > 12) mid += 24;
-        anchors[i]!.midpointHour = mid;
-    }
+    let bestScore = -Infinity;
+    let bestResult = { startIdx: 0, endIdx: anchors.length - 1, slope: 0, intercept: 0 };
 
-    // Pass 3: Rolling local fit (30-day lookback) — follows local trends
-    // through periods where tau changes
-    const LOOKBACK = 30;
-    for (let i = 1; i < anchors.length; i++) {
-        const localPoints: { x: number; y: number; w: number }[] = [];
-        for (let j = 0; j < i; j++) {
-            if (anchors[i]!.dayNumber - anchors[j]!.dayNumber <= LOOKBACK) {
-                localPoints.push({
-                    x: anchors[j]!.dayNumber,
-                    y: anchors[j]!.midpointHour,
-                    w: anchors[j]!.weight
-                });
+    for (let center = firstDay + SEED_HALF; center <= lastDay - SEED_HALF; center += step) {
+        // Gather anchors within this window
+        const windowStart = center - SEED_HALF;
+        const windowEnd = center + SEED_HALF;
+        const indices: number[] = [];
+        for (let i = 0; i < anchors.length; i++) {
+            if (anchors[i]!.dayNumber >= windowStart && anchors[i]!.dayNumber <= windowEnd) {
+                indices.push(i);
             }
         }
 
-        if (localPoints.length >= 2) {
-            const localFit = weightedLinearRegression(localPoints);
-            const localPred = localFit.slope * anchors[i]!.dayNumber + localFit.intercept;
-            let mid = anchors[i]!.midpointHour;
-            while (mid - localPred > 12) mid -= 24;
-            while (localPred - mid > 12) mid += 24;
-            anchors[i]!.midpointHour = mid;
+        if (indices.length < MIN_SEED_ANCHORS) continue;
+
+        // Locally pairwise-unwrap a copy
+        const windowMids = localPairwiseUnwrap(indices.map(i => anchors[i]!.midpointHour));
+        const pts = indices.map((idx, j) => ({ x: anchors[idx]!.dayNumber, y: windowMids[j]!, w: anchors[idx]!.weight }));
+        const fit = weightedLinearRegression(pts);
+
+        // Residual MAD
+        const residuals = pts.map(p => Math.abs(p.y - (fit.slope * p.x + fit.intercept)));
+        residuals.sort((a, b) => a - b);
+        const mad = residuals[Math.floor(residuals.length / 2)]!;
+
+        // Anchor density (fraction of days that have anchors)
+        const windowDays = windowEnd - windowStart || 1;
+        const density = Math.min(1, indices.length / (windowDays / 2));
+
+        // Average weight
+        const avgWeight = pts.reduce((s, p) => s + p.w, 0) / pts.length;
+
+        // Slope plausibility: no penalty for -0.5 to +3.0 h/day
+        let slopePenalty = 0;
+        if (fit.slope < -0.5) slopePenalty = Math.min(1, (-0.5 - fit.slope) / 5);
+        else if (fit.slope > 3.0) slopePenalty = Math.min(1, (fit.slope - 3.0) / 5);
+
+        // Combined score: lower MAD is better, higher density/weight is better
+        const madScore = 1 - Math.min(1, mad / 6);
+        const score = 0.35 * madScore + 0.25 * density + 0.25 * avgWeight + 0.15 * (1 - slopePenalty);
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestResult = {
+                startIdx: indices[0]!,
+                endIdx: indices[indices.length - 1]!,
+                slope: fit.slope,
+                intercept: fit.intercept
+            };
         }
     }
+
+    return bestResult;
+}
+
+/** Expand unwrapping from an already-unwrapped region outward */
+function expandFromRegion(anchors: Anchor[], fromIdx: number, toIdx: number, direction: "forward" | "backward"): void {
+    if (direction === "forward") {
+        for (let i = toIdx + 1; i < anchors.length; i++) {
+            snapToNeighbors(anchors, i, fromIdx, i - 1);
+        }
+    } else {
+        for (let i = fromIdx - 1; i >= 0; i--) {
+            snapToNeighbors(anchors, i, i + 1, toIdx);
+        }
+    }
+}
+
+/** Snap anchor[i] to within 12h of prediction from already-unwrapped neighbors */
+function snapToNeighbors(anchors: Anchor[], idx: number, refStart: number, refEnd: number): void {
+    const anchor = anchors[idx]!;
+    const neighbors: { x: number; y: number; w: number }[] = [];
+
+    for (let j = refStart; j <= refEnd; j++) {
+        const dayDist = Math.abs(anchors[j]!.dayNumber - anchor.dayNumber);
+        if (dayDist <= EXPANSION_LOOKBACK_DAYS) {
+            const gw = gaussian(dayDist, GAUSSIAN_SIGMA);
+            neighbors.push({ x: anchors[j]!.dayNumber, y: anchors[j]!.midpointHour, w: anchors[j]!.weight * gw });
+        }
+    }
+
+    if (neighbors.length === 0) return; // leave as-is
+
+    let predicted: number;
+    if (neighbors.length === 1) {
+        predicted = neighbors[0]!.y;
+    } else {
+        const fit = weightedLinearRegression(neighbors);
+        predicted = fit.slope * anchor.dayNumber + fit.intercept;
+    }
+
+    let mid = anchor.midpointHour;
+    while (mid - predicted > 12) mid -= 24;
+    while (predicted - mid > 12) mid += 24;
+    anchor.midpointHour = mid;
+}
+
+/** Seed-based unwrapping: find a clean region, unwrap it, then expand outward */
+function unwrapAnchorsFromSeed(anchors: Anchor[]): void {
+    if (anchors.length < 2) return;
+
+    const seed = findSeedRegion(anchors);
+
+    // Phase A: Pairwise-unwrap within the seed region
+    const seedMids = localPairwiseUnwrap(
+        anchors.slice(seed.startIdx, seed.endIdx + 1).map(a => a.midpointHour)
+    );
+    for (let i = seed.startIdx; i <= seed.endIdx; i++) {
+        anchors[i]!.midpointHour = seedMids[i - seed.startIdx]!;
+    }
+
+    // Phase B: Expand forward from seed end
+    expandFromRegion(anchors, seed.startIdx, seed.endIdx, "forward");
+
+    // Phase C: Expand backward from seed start
+    expandFromRegion(anchors, seed.startIdx, seed.endIdx, "backward");
 }
 
 // ─── Weighted linear regression ────────────────────────────────────
@@ -353,7 +454,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     if (anchors.length < 2) return empty;
 
     // Step 4: Unwrap
-    unwrapAnchors(anchors);
+    unwrapAnchorsFromSeed(anchors);
 
     // Step 5: Outlier detection — global preliminary fit
     const globalFit = evaluateWindow(
@@ -373,7 +474,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
     if (outliers.size > 0 && outliers.size < anchors.length * 0.15) {
         anchors = anchors.filter((_, i) => !outliers.has(i));
-        unwrapAnchors(anchors);
+        unwrapAnchorsFromSeed(anchors);
     }
 
     // Step 6: Per-day sliding window
