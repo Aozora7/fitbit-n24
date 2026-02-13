@@ -59,6 +59,9 @@ const OUTLIER_THRESHOLD_HOURS = 8; // only catch genuine data errors
 const SEED_HALF = 21; // half-width of seed search window
 const MIN_SEED_ANCHORS = 4; // minimum anchors to evaluate a seed window
 const EXPANSION_LOOKBACK_DAYS = 30; // how far back to look when expanding
+const SMOOTH_HALF = 7; // post-hoc smoothing: ±7 day neighborhood
+const SMOOTH_SIGMA = 3; // Gaussian sigma for smoothing weights
+const SMOOTH_JUMP_THRESH = 2; // only smooth days with >2h jump to neighbor
 
 // ─── Anchor classification ─────────────────────────────────────────
 
@@ -208,10 +211,17 @@ function expandFromRegion(anchors: Anchor[], fromIdx: number, toIdx: number, dir
     }
 }
 
-/** Snap anchor[i] to within 12h of prediction from already-unwrapped neighbors */
+/** Snap anchor[i] to within 12h of prediction from already-unwrapped neighbors.
+ *  Uses both regression-based and nearest-neighbor (pairwise) predictions.
+ *  When they agree on the 24h branch, uses regression (more informed).
+ *  When they disagree and the nearest neighbor is close, prefers pairwise
+ *  to avoid regression overextrapolation during fragmented periods. */
 function snapToNeighbors(anchors: Anchor[], idx: number, refStart: number, refEnd: number): void {
     const anchor = anchors[idx]!;
     const neighbors: { x: number; y: number; w: number }[] = [];
+
+    let nearestDist = Infinity;
+    let nearestMid = 0;
 
     for (let j = refStart; j <= refEnd; j++) {
         const dayDist = Math.abs(anchors[j]!.dayNumber - anchor.dayNumber);
@@ -219,22 +229,46 @@ function snapToNeighbors(anchors: Anchor[], idx: number, refStart: number, refEn
             const gw = gaussian(dayDist, GAUSSIAN_SIGMA);
             neighbors.push({ x: anchors[j]!.dayNumber, y: anchors[j]!.midpointHour, w: anchors[j]!.weight * gw });
         }
+        if (dayDist < nearestDist) {
+            nearestDist = dayDist;
+            nearestMid = anchors[j]!.midpointHour;
+        }
     }
 
     if (neighbors.length === 0) return; // leave as-is
 
-    let predicted: number;
+    // Regression-based prediction
+    let regressionPred: number;
     if (neighbors.length === 1) {
-        predicted = neighbors[0]!.y;
+        regressionPred = neighbors[0]!.y;
     } else {
         const fit = weightedLinearRegression(neighbors);
-        predicted = fit.slope * anchor.dayNumber + fit.intercept;
+        regressionPred = fit.slope * anchor.dayNumber + fit.intercept;
     }
 
-    let mid = anchor.midpointHour;
-    while (mid - predicted > 12) mid -= 24;
-    while (predicted - mid > 12) mid += 24;
-    anchor.midpointHour = mid;
+    // Snap using regression prediction
+    let regMid = anchor.midpointHour;
+    while (regMid - regressionPred > 12) regMid -= 24;
+    while (regressionPred - regMid > 12) regMid += 24;
+
+    // Also snap using nearest neighbor (pairwise)
+    let pairMid = anchor.midpointHour;
+    while (pairMid - nearestMid > 12) pairMid -= 24;
+    while (nearestMid - pairMid > 12) pairMid += 24;
+
+    // If both agree on the branch, use regression (more informed).
+    // If they disagree, prefer pairwise only when the anchor is clearly
+    // close to the nearest neighbor (< 6h difference) — this prevents
+    // regression overextrapolation at fragmentation boundaries while
+    // still trusting the regression for genuine 24h branch transitions
+    // (where the pairwise difference is 6-12h and ambiguous).
+    if (Math.abs(regMid - pairMid) < 1) {
+        anchor.midpointHour = regMid;
+    } else if (nearestDist <= 7 && Math.abs(pairMid - nearestMid) < 6) {
+        anchor.midpointHour = pairMid;
+    } else {
+        anchor.midpointHour = regMid;
+    }
 }
 
 /** Seed-based unwrapping: find a clean region, unwrap it, then expand outward */
@@ -359,6 +393,11 @@ function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number
         }
     }
 
+    // Compute weighted mean x (centroid) for regularized extrapolation
+    let wxSum = 0, wSumX = 0;
+    for (const p of points) { wxSum += p.w * p.x; wSumX += p.w; }
+    const weightedMeanX = wSumX > 0 ? wxSum / wSumX : centerDay;
+
     if (points.length < 2) {
         return {
             slope: 0,
@@ -366,7 +405,8 @@ function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number
             pointsUsed: points.length,
             avgQuality: 0,
             residualMAD: 999,
-            avgDuration: 8
+            avgDuration: 8,
+            weightedMeanX
         };
     }
 
@@ -383,7 +423,8 @@ function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number
         pointsUsed: points.length,
         avgQuality: qualityCount > 0 ? qualitySum / qualityCount : 0,
         residualMAD,
-        avgDuration: durationCount > 0 ? durationSum / durationCount : 8
+        avgDuration: durationCount > 0 ? durationSum / durationCount : 8,
+        weightedMeanX
     };
 }
 
@@ -498,6 +539,13 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     let tauWSum = 0;
     const allResiduals: number[] = [];
 
+    // Parallel arrays for post-hoc smoothing
+    const rawPredictedMid: number[] = []; // unwrapped predicted midpoints
+    const rawConfScore: number[] = [];
+    const rawIsForecast: boolean[] = [];
+    const rawSlopeConf: number[] = [];
+    const rawHalfDur: number[] = [];
+
     const totalDays = lastDay + extraDays;
 
     // Compute edge fit for forecast extrapolation: freeze the regression
@@ -538,17 +586,26 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
             }
         }
 
-        const predictedMid = result.slope * d + result.intercept;
-        const localTau = 24 + result.slope;
+        // Regularize local slope toward global estimate in weak windows
+        const expectedPts = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
+        const slopeConf = Math.min(1, result.pointsUsed / expectedPts) *
+                          (1 - Math.min(1, result.residualMAD / 4));
+        const regularizedSlope = slopeConf * result.slope + (1 - slopeConf) * globalFit.slope;
+        const localTau = 24 + regularizedSlope;
 
-        const normalizedMid = ((predictedMid % 24) + 24) % 24;
+        // Use the regression's fit at the data centroid, then extrapolate
+        // at the regularized slope. For symmetric windows (well-estimated),
+        // centroid ≈ d so this matches the raw prediction. For asymmetric
+        // windows (fragmented periods), the extrapolation from centroid at
+        // the regularized rate prevents wild jumps.
+        const centroidPred = result.slope * result.weightedMeanX + result.intercept;
+        const predictedMid = centroidPred + regularizedSlope * (d - result.weightedMeanX);
+
         const halfDur = result.avgDuration / 2;
 
         // Confidence
         let confScore: number;
         if (isForecast) {
-            // Decay confidence with distance from last data day
-            // ~0.5 at 7 days, ~0.25 at 14 days, ~0.05 at 30 days
             const distFromEdge = d - lastDay;
             confScore = edgeBaseConf * Math.exp(-0.1 * distFromEdge);
         } else {
@@ -559,6 +616,15 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
             confScore = 0.4 * density + 0.3 * quality + 0.3 * spread;
         }
 
+        // Store values for post-hoc smoothing
+        rawPredictedMid.push(predictedMid);
+        rawSlopeConf.push(slopeConf);
+        rawConfScore.push(confScore);
+        rawIsForecast.push(isForecast);
+        rawHalfDur.push(halfDur);
+
+        const normalizedMid = ((predictedMid % 24) + 24) % 24;
+
         days.push({
             date: dateStr,
             nightStartHour: normalizedMid - halfDur,
@@ -566,7 +632,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
             confidenceScore: confScore,
             confidence: confScore >= 0.6 ? "high" : confScore >= 0.3 ? "medium" : "low",
             localTau,
-            localDrift: result.slope,
+            localDrift: regularizedSlope,
             anchorSleep: bestAnchorByDate.get(dateStr)?.record,
             isForecast
         });
@@ -574,7 +640,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         tauSum += localTau * confScore;
         tauWSum += confScore;
 
-        // Collect residuals for stats (only for data days)
+        // Collect residuals for stats (only for data days, before smoothing)
         if (!isForecast) {
             for (const a of anchors) {
                 if (Math.abs(a.dayNumber - d) < 0.5) {
@@ -584,7 +650,200 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         }
     }
 
-    const globalTau = tauWSum > 0 ? tauSum / tauWSum : 24;
+    // Step 7: Jump-targeted overlay smoothing
+    // Only smooth days where raw predictions create a large jump (>SMOOTH_JUMP_THRESH)
+    // from neighbors. This fixes window-expansion artifacts during fragmented sleep
+    // without affecting well-estimated days' drift tracking.
+
+    // 7a: Pairwise-unwrap raw predictions to remove 24h steps
+    for (let i = 1; i <= totalDays; i++) {
+        if (rawIsForecast[i] || rawIsForecast[i - 1]) continue;
+        let curr = rawPredictedMid[i]!;
+        const prev = rawPredictedMid[i - 1]!;
+        while (curr - prev > 12) curr -= 24;
+        while (prev - curr > 12) curr += 24;
+        rawPredictedMid[i] = curr;
+    }
+
+    // 7b: Two-pass smoothing
+    // Pass 1: Anchor-based smoothing for low-confidence days (fixes slope)
+    // Pass 2: Jump-based prediction smoothing (fixes remaining discontinuities)
+
+    const smoothGlobalFit = evaluateWindow(
+        anchors,
+        anchors[Math.floor(anchors.length / 2)]!.dayNumber,
+        anchors[anchors.length - 1]!.dayNumber
+    );
+
+    // Pass 1: Anchor-based smoothing for low-slopeConf days
+    const SLOPE_CONF_THRESH = 0.4;
+    const needsAnchorSmooth: boolean[] = new Array(totalDays + 1).fill(false);
+    for (let i = 0; i <= totalDays; i++) {
+        if (rawIsForecast[i]) continue;
+        if (rawSlopeConf[i]! < SLOPE_CONF_THRESH) needsAnchorSmooth[i] = true;
+    }
+
+    // Expand margin for smooth transition at anchor-smoothed boundaries.
+    // Track distance to nearest core-flagged day for blend fading.
+    const SMOOTH_MARGIN = 5;
+    const distToCore: number[] = new Array(totalDays + 1).fill(Infinity);
+    for (let i = 0; i <= totalDays; i++) {
+        if (needsAnchorSmooth[i]) distToCore[i] = 0;
+    }
+    // Forward pass
+    for (let i = 1; i <= totalDays; i++) {
+        if (distToCore[i - 1]! + 1 < distToCore[i]!) distToCore[i] = distToCore[i - 1]! + 1;
+    }
+    // Backward pass
+    for (let i = totalDays - 1; i >= 0; i--) {
+        if (distToCore[i + 1]! + 1 < distToCore[i]!) distToCore[i] = distToCore[i + 1]! + 1;
+    }
+    for (let i = 0; i <= totalDays; i++) {
+        if (!rawIsForecast[i] && distToCore[i]! <= SMOOTH_MARGIN) {
+            needsAnchorSmooth[i] = true;
+        }
+    }
+
+    for (let i = 0; i <= totalDays; i++) {
+        if (!needsAnchorSmooth[i]) continue;
+
+        let wSum = 0;
+        let wResidualSum = 0;
+        const trend_i = smoothGlobalFit.slope * i + smoothGlobalFit.intercept;
+
+        // Smooth using actual anchor positions — captures local slope
+        // changes the global trend misses
+        for (const a of anchors) {
+            const dist = Math.abs(a.dayNumber - i);
+            if (dist > SMOOTH_HALF) continue;
+            const gw = gaussian(dist, SMOOTH_SIGMA);
+            const w = gw * a.weight;
+            const trend_a = smoothGlobalFit.slope * a.dayNumber + smoothGlobalFit.intercept;
+            wResidualSum += w * (a.midpointHour - trend_a);
+            wSum += w;
+        }
+
+        // Require meaningful anchor coverage (not just a single distant anchor)
+        if (wSum > 0.5) {
+            const anchorMid = trend_i + wResidualSum / wSum;
+            // Blend: core days (distToCore=0) get full anchor weight;
+            // margin days fade linearly to 0 at SMOOTH_MARGIN
+            const anchorWeight = Math.max(0, 1 - distToCore[i]! / SMOOTH_MARGIN);
+            const smoothedMid = anchorWeight * anchorMid + (1 - anchorWeight) * rawPredictedMid[i]!;
+            rawPredictedMid[i] = smoothedMid;
+            const normalizedMid = ((smoothedMid % 24) + 24) % 24;
+            const halfDur = rawHalfDur[i]!;
+            days[i]!.nightStartHour = normalizedMid - halfDur;
+            days[i]!.nightEndHour = normalizedMid + halfDur;
+        }
+    }
+
+    // Pass 2: Iterative jump-based prediction smoothing
+    // Repeatedly detect and smooth jumps until none >SMOOTH_JUMP_THRESH remain.
+    // Usually converges in 1-2 iterations; cap at 3 for safety.
+    for (let iter = 0; iter < 3; iter++) {
+        // Re-unwrap after modifications
+        for (let i = 1; i <= totalDays; i++) {
+            if (rawIsForecast[i] || rawIsForecast[i - 1]) continue;
+            let curr = rawPredictedMid[i]!;
+            const prev = rawPredictedMid[i - 1]!;
+            while (curr - prev > 12) curr -= 24;
+            while (prev - curr > 12) curr += 24;
+            rawPredictedMid[i] = curr;
+        }
+
+        const normMid: number[] = [];
+        for (let i = 0; i <= totalDays; i++) {
+            normMid.push(((rawPredictedMid[i]! % 24) + 24) % 24);
+        }
+
+        const needsJumpSmooth: boolean[] = new Array(totalDays + 1).fill(false);
+        let anyJumps = false;
+        for (let i = 0; i <= totalDays; i++) {
+            if (rawIsForecast[i]) continue;
+            let maxJump = 0;
+            if (i > 0 && !rawIsForecast[i - 1]) {
+                let d = Math.abs(normMid[i]! - normMid[i - 1]!);
+                if (d > 12) d = 24 - d;
+                maxJump = Math.max(maxJump, d);
+            }
+            if (i < totalDays && !rawIsForecast[i + 1]) {
+                let d = Math.abs(normMid[i]! - normMid[i + 1]!);
+                if (d > 12) d = 24 - d;
+                maxJump = Math.max(maxJump, d);
+            }
+            if (maxJump > SMOOTH_JUMP_THRESH) {
+                needsJumpSmooth[i] = true;
+                anyJumps = true;
+            }
+        }
+
+        if (!anyJumps) break;
+
+        const jumpFlagged = needsJumpSmooth.slice();
+        for (let i = 0; i <= totalDays; i++) {
+            if (!jumpFlagged[i]) continue;
+            for (let j = Math.max(0, i - SMOOTH_MARGIN); j <= Math.min(totalDays, i + SMOOTH_MARGIN); j++) {
+                if (!rawIsForecast[j]) needsJumpSmooth[j] = true;
+            }
+        }
+
+        for (let i = 0; i <= totalDays; i++) {
+            if (!needsJumpSmooth[i]) continue;
+
+            let wSum = 0;
+            let wResidualSum = 0;
+            const trend_i = smoothGlobalFit.slope * i + smoothGlobalFit.intercept;
+
+            for (let j = Math.max(0, i - SMOOTH_HALF); j <= Math.min(totalDays, i + SMOOTH_HALF); j++) {
+                if (rawIsForecast[j]) continue;
+                const dist = Math.abs(i - j);
+                const gw = gaussian(dist, SMOOTH_SIGMA);
+                const w = gw * rawConfScore[j]!;
+                const trend_j = smoothGlobalFit.slope * j + smoothGlobalFit.intercept;
+                wResidualSum += w * (rawPredictedMid[j]! - trend_j);
+                wSum += w;
+            }
+
+            if (wSum > 0) {
+                const smoothedMid = trend_i + wResidualSum / wSum;
+                rawPredictedMid[i] = smoothedMid;
+                const normalizedMid = ((smoothedMid % 24) + 24) % 24;
+                const halfDur = rawHalfDur[i]!;
+                days[i]!.nightStartHour = normalizedMid - halfDur;
+                days[i]!.nightEndHour = normalizedMid + halfDur;
+            }
+        }
+    }
+
+    // Compute globalTau from overlay midpoints (not from averaged localTau,
+    // which uses regularized slopes and diverges from the actual overlay).
+    // Unwrap the final overlay midpoints and fit a weighted regression to
+    // extract the slope — this directly measures the overlay's drift rate.
+    const overlayMids: { x: number; y: number; w: number }[] = [];
+    {
+        let prevMid = -Infinity;
+        let d = 0;
+        for (const day of days) {
+            if (!day.isForecast) {
+                let mid = (day.nightStartHour + day.nightEndHour) / 2;
+                if (prevMid > -Infinity) {
+                    while (mid - prevMid > 12) mid -= 24;
+                    while (prevMid - mid > 12) mid += 24;
+                }
+                overlayMids.push({ x: d, y: mid, w: day.confidenceScore });
+                prevMid = mid;
+            }
+            d++;
+        }
+    }
+    let globalTau: number;
+    if (overlayMids.length >= 2) {
+        const overlayFit = weightedLinearRegression(overlayMids);
+        globalTau = 24 + overlayFit.slope;
+    } else {
+        globalTau = tauWSum > 0 ? tauSum / tauWSum : 24;
+    }
     const globalDrift = globalTau - 24;
 
     allResiduals.sort((a, b) => a - b);

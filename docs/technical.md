@@ -263,7 +263,7 @@ The midpoint sequence is unwrapped using a seed-based algorithm to handle 24-hou
 
 2. **Seed unwrapping** (Phase A): The seed region is pairwise-unwrapped. This is safe because the seed was selected for internal consistency.
 
-3. **Forward expansion** (Phase B): Starting from the seed's end, each subsequent anchor is snapped to within 12h of a prediction derived from already-unwrapped neighbors within 30 days. Neighbors are Gaussian distance-weighted (σ=14 days). With 2+ neighbors, a weighted linear regression predicts the midpoint. With 1 neighbor, a simple 12h snap is used. With 0 neighbors (very sparse data), the anchor is left as-is.
+3. **Forward expansion** (Phase B): Starting from the seed's end, each subsequent anchor is snapped to within 12h of a prediction derived from already-unwrapped neighbors within 30 days. Neighbors are Gaussian distance-weighted (σ=14 days). With 2+ neighbors, a weighted linear regression predicts the midpoint. With 1 neighbor, a simple 12h snap is used. With 0 neighbors (very sparse data), the anchor is left as-is. **Branch conflict resolution**: Both regression-based and nearest-neighbor (pairwise) branch predictions are computed. When they agree, the regression is used. When they disagree and the anchor is clearly close to its nearest neighbor (<6h, ≤7 days away), the pairwise prediction is preferred — this prevents regression overextrapolation from steep pre-fragmentation data placing anchors on the wrong 24h branch.
 
 4. **Backward expansion** (Phase C): Same as forward expansion but proceeding from the seed's start toward the beginning of the data. This allows noisy early data to be constrained by the clean seed region rather than propagating errors forward.
 
@@ -279,7 +279,8 @@ For each calendar day, a sliding window is evaluated:
 2. Apply Gaussian weights (sigma = **14 days**) multiplied by each anchor's tier weight
 3. Fit **robust weighted regression** using IRLS (iteratively reweighted least squares) with Tukey bisquare M-estimation (tuning constant = 4.685, up to 5 iterations). This downweights outliers that survived Step 4.
 4. Extract local tau = `24 + slope`, along with quality metrics (anchor count, mean quality, residual MAD, average A-tier sleep duration)
-5. Compute a composite confidence score: `0.4 * density + 0.3 * quality + 0.3 * (1 - residualSpread)`
+5. **Slope regularization**: The local slope is blended toward the global fit slope based on window strength. `slopeConf = min(1, pointsUsed/expected) × (1 - min(1, residualMAD/4))`. The reported `localTau` uses `regularizedSlope = slopeConf × localSlope + (1 - slopeConf) × globalSlope`. The predicted midpoint uses centroid-anchored extrapolation: the regression's prediction at the weighted mean x of its anchors, then extrapolated to the target day at the regularized slope. For symmetric windows this closely matches the raw regression; for asymmetric windows (fragmented periods) this constrains the overlay to advance at the regularized rate.
+6. Compute a composite confidence score: `0.4 * density + 0.3 * quality + 0.3 * (1 - residualSpread)`
 
 If fewer than **6 anchors** fall in the window, it expands progressively: first to ±32 days, then to ±60 days (120-day window).
 
@@ -289,6 +290,22 @@ For each calendar day, the local regression predicts a midpoint. A window center
 
 The circadian overlay uses the day's confidence score to modulate alpha: `0.1 + confidenceScore * 0.25`.
 
+### Step 7: Jump-targeted overlay smoothing
+
+After all per-day predictions are computed, a two-pass post-hoc smoothing corrects artifacts from the sliding window approach.
+
+**Pass 1 — Anchor-based smoothing** (for low-confidence regions):
+1. Flag days where `slopeConf < 0.4` (fragmented/uncertain windows), plus ±5 day margins for smooth transitions.
+2. For flagged days with sufficient nearby anchors (cumulative weight > 0.5), compute a smoothed midpoint from actual anchor sleep positions: residuals from global trend, Gaussian-weighted by distance (sigma=3) and anchor weight over ±7 days.
+3. Blend the anchor-smoothed result with the raw prediction using distance-to-core fading: core days get full anchor weight, margin days fade linearly to zero.
+4. This pulls the overlay toward where sleep actually occurs during fragmented periods, capturing local slope changes that the global trend misses.
+
+**Pass 2 — Iterative jump smoothing** (for remaining discontinuities):
+1. **Pairwise unwrap** modified predictions to remove 24h steps.
+2. **Jump detection**: Flag days with circular jump > **2h** to neighbors, plus ±5 day margins.
+3. **Prediction-based residual smoothing**: Gaussian-weighted average of neighboring predictions' residuals from global trend (`sigma=3`, ±7 days).
+4. Iterate up to 3 times until no jumps exceed the threshold.
+
 ### Forecast extrapolation
 
 When forecast days are requested, the regression from the last data day (the "edge fit") is frozen and extrapolated forward. Forecast confidence decays exponentially: `edgeBaseConfidence * exp(-0.1 * daysFromEdge)`, reaching ~50% at 7 days and ~5% at 30 days. The forecast overlay is drawn in amber (`rgba(251, 191, 36, alpha)`) to distinguish it from the purple historical overlay.
@@ -296,7 +313,7 @@ When forecast days are requested, the regression from the last data day (the "ed
 ### Output
 
 `CircadianAnalysis` contains:
-- `globalTau` / `globalDailyDrift`: Confidence-weighted average of all local tau estimates
+- `globalTau` / `globalDailyDrift`: Derived from weighted linear regression on unwrapped overlay midpoints (matches the visible overlay drift rate)
 - `anchors[]`: Array of `AnchorPoint` with `dayNumber`, `midpointHour`, `weight`, `tier`, `date`
 - `anchorCount` / `anchorTierCounts`: How many anchors in each tier
 - `medianResidualHours`: Median absolute deviation of anchor residuals from the model

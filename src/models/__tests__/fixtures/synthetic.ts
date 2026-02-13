@@ -48,6 +48,13 @@ export interface SyntheticOptions {
   outlierFraction?: number;
   /** Hours off-phase for outlier sleeps (default 6) */
   outlierOffset?: number;
+  /** Replace consolidated sleep with multiple short bouts during a date range */
+  fragmentedPeriod?: {
+    startDay: number;
+    endDay: number;
+    boutsPerDay: number;  // e.g., 3
+    boutDuration: number; // hours per bout, e.g., 3.5
+  };
 }
 
 /**
@@ -99,6 +106,7 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
     napFraction = 0,
     outlierFraction = 0,
     outlierOffset = 6,
+    fragmentedPeriod,
   } = opts;
 
   const rng = mulberry32(seed);
@@ -115,6 +123,59 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
     }
 
     const midpointTrue = computeTrueMidpoint(d, opts);
+
+    const dayDate = new Date(baseDate);
+    dayDate.setDate(dayDate.getDate() + d);
+    const dateStr =
+      dayDate.getFullYear() +
+      "-" +
+      String(dayDate.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(dayDate.getDate()).padStart(2, "0");
+
+    // Fragmented period: generate multiple short bouts instead of one consolidated sleep
+    if (fragmentedPeriod && d >= fragmentedPeriod.startDay && d < fragmentedPeriod.endDay) {
+      const { boutsPerDay, boutDuration } = fragmentedPeriod;
+      // Spread bouts across the day; one closest to circadian midpoint is mainSleep
+      const spacing = 24 / boutsPerDay;
+      const boutMidpoints: number[] = [];
+      for (let b = 0; b < boutsPerDay; b++) {
+        const offset = (b - Math.floor(boutsPerDay / 2)) * spacing;
+        boutMidpoints.push(midpointTrue + offset + gaussianSample(rng) * noise);
+      }
+      // Find which bout is closest to true circadian midpoint
+      let closestIdx = 0;
+      let closestDist = Infinity;
+      for (let b = 0; b < boutMidpoints.length; b++) {
+        const dist = Math.abs(boutMidpoints[b]! - midpointTrue);
+        if (dist < closestDist) { closestDist = dist; closestIdx = b; }
+      }
+      for (let b = 0; b < boutsPerDay; b++) {
+        const boutMid = boutMidpoints[b]!;
+        const halfDur = boutDuration / 2;
+        const startMs = dayDate.getTime() + (boutMid - halfDur) * 3_600_000;
+        const endMs = dayDate.getTime() + (boutMid + halfDur) * 3_600_000;
+        const durationMs = endMs - startMs;
+        const isMain = b === closestIdx;
+        records.push({
+          logId: nextLogId++,
+          dateOfSleep: dateStr,
+          startTime: new Date(startMs),
+          endTime: new Date(endMs),
+          durationMs,
+          durationHours: durationMs / 3_600_000,
+          efficiency: isMain ? 85 : 75,
+          minutesAsleep: Math.round((durationMs / 60_000) * (isMain ? 0.85 : 0.75)),
+          minutesAwake: Math.round((durationMs / 60_000) * (isMain ? 0.15 : 0.25)),
+          isMainSleep: isMain,
+          sleepScore: isMain ? quality * 0.7 : quality * 0.4,
+        });
+      }
+      // Consume remaining RNG slots for determinism
+      rng(); rng();
+      continue;
+    }
+
     const midpointHour = midpointTrue + gaussianSample(rng) * noise;
 
     // Outlier shift
@@ -124,19 +185,9 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
     const durationHours = baseDuration + (rng() - 0.5) * 1; // ±0.5h variation
     const halfDur = durationHours / 2;
 
-    const dayDate = new Date(baseDate);
-    dayDate.setDate(dayDate.getDate() + d);
-
     const startMs = dayDate.getTime() + (finalMidpoint - halfDur) * 3_600_000;
     const endMs = dayDate.getTime() + (finalMidpoint + halfDur) * 3_600_000;
     const durationMs = endMs - startMs;
-
-    const dateStr =
-      dayDate.getFullYear() +
-      "-" +
-      String(dayDate.getMonth() + 1).padStart(2, "0") +
-      "-" +
-      String(dayDate.getDate()).padStart(2, "0");
 
     records.push({
       logId: nextLogId++,

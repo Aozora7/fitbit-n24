@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { analyzeCircadian, type CircadianAnalysis } from "../circadian";
+import { computeLombScargle } from "../lombScargle";
 import {
   generateSyntheticRecords,
   computeTrueMidpoint,
@@ -383,7 +384,133 @@ describe("scoring: confidence calibration", () => {
   });
 });
 
-// ── Test 11: Real data scoring ─────────────────────────────────────
+// ── Test 11: Sleep fragmentation resistance ────────────────────────
+
+describe("scoring: sleep fragmentation", () => {
+  it("localTau stays bounded during sleep fragmentation", () => {
+    const opts: SyntheticOptions = {
+      tau: 25.0,
+      days: 180,
+      noise: 0.3,
+      seed: 1100,
+      fragmentedPeriod: {
+        startDay: 60,
+        endDay: 120,
+        boutsPerDay: 3,
+        boutDuration: 3.5,
+      },
+    };
+    const records = generateSyntheticRecords(opts);
+    const analysis = analyzeCircadian(records);
+
+    const baseDate = new Date("2024-01-01T00:00:00");
+    const fragmentedTaus: number[] = [];
+
+    for (const day of analysis.days) {
+      if (day.isForecast) continue;
+      const d = Math.round(
+        (new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000,
+      );
+
+      // All localTau should be in reasonable range
+      expect(day.localTau).toBeGreaterThan(24.0);
+      expect(day.localTau).toBeLessThan(26.0);
+
+      if (d >= 60 && d < 120) {
+        fragmentedTaus.push(day.localTau);
+      }
+    }
+
+    // Mean localTau during fragmented period should be close to true tau
+    const meanFragTau = fragmentedTaus.reduce((s, t) => s + t, 0) / fragmentedTaus.length;
+    console.log(`  fragmentation: mean localTau during fragmented period = ${meanFragTau.toFixed(3)} (true=25.0)`);
+    expect(Math.abs(meanFragTau - 25.0)).toBeLessThan(0.5);
+  });
+});
+
+// ── Test 12: Overlay smoothness ─────────────────────────────────────
+// The circadian overlay midpoint should not jump more than a few hours
+// between consecutive days. Max plausible daily drift is ~2h (tau=26),
+// so a 3h threshold catches overlay breakage without false positives.
+
+/** Circular midpoint from nightStart/nightEnd */
+function overlayMid(day: { nightStartHour: number; nightEndHour: number }): number {
+  return (((day.nightStartHour + day.nightEndHour) / 2) % 24 + 24) % 24;
+}
+
+/** Compute max day-to-day midpoint jump (circular) across non-forecast days */
+function maxOverlayJump(days: CircadianAnalysis["days"]): { maxJump: number; atDate: string } {
+  const data = days.filter(d => !d.isForecast);
+  let maxJump = 0;
+  let atDate = "";
+  for (let i = 1; i < data.length; i++) {
+    const prev = overlayMid(data[i - 1]!);
+    const curr = overlayMid(data[i]!);
+    let delta = Math.abs(curr - prev);
+    if (delta > 12) delta = 24 - delta;
+    if (delta > maxJump) {
+      maxJump = delta;
+      atDate = data[i]!.date;
+    }
+  }
+  return { maxJump, atDate };
+}
+
+describe("scoring: overlay smoothness (synthetic)", () => {
+  it("no jumps > 3h with clean data", () => {
+    const opts: SyntheticOptions = { tau: 25.0, days: 180, noise: 0.3, seed: 1200 };
+    const records = generateSyntheticRecords(opts);
+    const analysis = analyzeCircadian(records);
+    const { maxJump, atDate } = maxOverlayJump(analysis.days);
+    console.log(`  clean overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
+    expect(maxJump).toBeLessThan(3);
+  });
+
+  it("no jumps > 3h with gaps", () => {
+    const opts: SyntheticOptions = { tau: 24.5, days: 200, noise: 0.5, gapFraction: 0.3, seed: 1201 };
+    const records = generateSyntheticRecords(opts);
+    const analysis = analyzeCircadian(records);
+    const { maxJump, atDate } = maxOverlayJump(analysis.days);
+    console.log(`  gapped overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
+    expect(maxJump).toBeLessThan(3);
+  });
+
+  it("no jumps > 3h with fragmented sleep", () => {
+    const opts: SyntheticOptions = {
+      tau: 25.0, days: 180, noise: 0.3, seed: 1202,
+      fragmentedPeriod: { startDay: 60, endDay: 120, boutsPerDay: 3, boutDuration: 3.5 },
+    };
+    const records = generateSyntheticRecords(opts);
+    const analysis = analyzeCircadian(records);
+    const { maxJump, atDate } = maxOverlayJump(analysis.days);
+    console.log(`  fragmented overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
+    expect(maxJump).toBeLessThan(3);
+  });
+
+  it("no jumps > 3h with variable tau", () => {
+    const opts: SyntheticOptions = {
+      tauSegments: [{ untilDay: 90, tau: 24.2 }, { untilDay: 180, tau: 24.8 }],
+      days: 180, noise: 0.3, seed: 1203,
+    };
+    const records = generateSyntheticRecords(opts);
+    const analysis = analyzeCircadian(records);
+    const { maxJump, atDate } = maxOverlayJump(analysis.days);
+    console.log(`  variable-tau overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
+    expect(maxJump).toBeLessThan(3);
+  });
+});
+
+describe.skipIf(!hasRealData)("scoring: overlay smoothness (real data)", () => {
+  it("no jumps > 3h in real data overlay", () => {
+    const records = loadRealData();
+    const analysis = analyzeCircadian(records);
+    const { maxJump, atDate } = maxOverlayJump(analysis.days);
+    console.log(`  real data overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
+    expect(maxJump).toBeLessThan(3);
+  });
+});
+
+// ── Test 14: Real data scoring ─────────────────────────────────────
 
 describe.skipIf(!hasRealData)("scoring: real data", () => {
   it("reports accuracy scores on real data", () => {
@@ -416,5 +543,142 @@ describe.skipIf(!hasRealData)("scoring: real data", () => {
     expect(analysis.globalTau).toBeGreaterThan(23.5);
     expect(analysis.globalTau).toBeLessThan(26.5);
     expect(analysis.medianResidualHours).toBeLessThan(4);
+
+    // Per-day localTau should stay bounded — no unreasonable values
+    for (const day of dataDays) {
+      expect(day.localTau).toBeGreaterThan(23.5);
+      expect(day.localTau).toBeLessThan(26.0);
+    }
+  });
+});
+
+// ── Cumulative phase shift utilities ────────────────────────────────
+
+/** Compute cumulative phase shift from overlay day-to-day deltas (in hours) */
+function cumulativeShiftHours(days: CircadianAnalysis["days"]): number {
+  const data = days.filter(d => !d.isForecast);
+  if (data.length < 2) return 0;
+  let prevMid = overlayMid(data[0]!);
+  let accumulated = 0;
+  for (let i = 1; i < data.length; i++) {
+    const mid = overlayMid(data[i]!);
+    let delta = mid - prevMid;
+    if (delta > 12) delta -= 24;
+    if (delta < -12) delta += 24;
+    accumulated += delta;
+    prevMid = mid;
+  }
+  return accumulated;
+}
+
+/** Convert cumulative shift to implied tau */
+function shiftToTau(shiftHours: number, numDays: number): number {
+  const revolutions = Math.abs(shiftHours / 24);
+  if (revolutions < 0.1) return 24;
+  return (24 * numDays) / (numDays - Math.sign(shiftHours) * revolutions);
+}
+
+// ── Test 15: Cumulative phase shift vs ground truth (synthetic) ─────
+
+describe("scoring: cumulative phase shift (synthetic)", () => {
+  const cases: { tau: number; days: number }[] = [
+    { tau: 24.0, days: 180 },
+    { tau: 24.5, days: 180 },
+    { tau: 25.0, days: 180 },
+    { tau: 25.0, days: 90 },
+  ];
+
+  for (const { tau, days } of cases) {
+    it(`tau=${tau}, ${days}d: overlay shift within 15% of expected`, () => {
+      const opts: SyntheticOptions = { tau, days, noise: 0.3, seed: 1500 + Math.round(tau * 100) + days };
+      const records = generateSyntheticRecords(opts);
+      const analysis = analyzeCircadian(records);
+
+      const dataDays = analysis.days.filter(d => !d.isForecast);
+      const expectedShiftH = (tau - 24) * dataDays.length;
+      const actualShiftH = cumulativeShiftHours(analysis.days);
+      const impliedTau = shiftToTau(actualShiftH, dataDays.length);
+
+      console.log(
+        `  tau=${tau} ${days}d: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`,
+      );
+
+      if (Math.abs(expectedShiftH) < 1) {
+        // For tau≈24, absolute tolerance (shift near 0)
+        expect(Math.abs(actualShiftH - expectedShiftH)).toBeLessThan(5);
+      } else {
+        // Relative tolerance: overlay shift should be within 15% of expected
+        const ratio = actualShiftH / expectedShiftH;
+        expect(ratio).toBeGreaterThan(0.85);
+        expect(ratio).toBeLessThan(1.15);
+      }
+    });
+  }
+
+  it("fragmented period preserves cumulative shift", () => {
+    const tau = 25.0;
+    const opts: SyntheticOptions = {
+      tau, days: 180, noise: 0.3, seed: 1550,
+      fragmentedPeriod: { startDay: 60, endDay: 120, boutsPerDay: 3, boutDuration: 3.5 },
+    };
+    const records = generateSyntheticRecords(opts);
+    const analysis = analyzeCircadian(records);
+
+    const dataDays = analysis.days.filter(d => !d.isForecast);
+    const expectedShiftH = (tau - 24) * dataDays.length;
+    const actualShiftH = cumulativeShiftHours(analysis.days);
+    const impliedTau = shiftToTau(actualShiftH, dataDays.length);
+
+    console.log(
+      `  fragmented: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`,
+    );
+
+    const ratio = actualShiftH / expectedShiftH;
+    expect(ratio).toBeGreaterThan(0.85);
+    expect(ratio).toBeLessThan(1.15);
+  });
+});
+
+// ── Test 16: Overlay shift vs periodogram (real data) ───────────────
+
+describe.skipIf(!hasRealData)("scoring: cumulative shift vs periodogram (real data)", () => {
+  it("overlay implied tau within 15% drift of periodogram peak", () => {
+    const records = loadRealData();
+    const analysis = analyzeCircadian(records);
+    const periodogram = computeLombScargle(analysis.anchors);
+
+    const dataDays = analysis.days.filter(d => !d.isForecast);
+    const numDays = dataDays.length;
+    const actualShiftH = cumulativeShiftHours(analysis.days);
+    const overlayTau = shiftToTau(actualShiftH, numDays);
+
+    const peakTau = periodogram.peakPeriod;
+    const expectedShiftH = (peakTau - 24) * numDays;
+
+    // Compare drifts (tau - 24) rather than raw tau, since drift is the
+    // quantity that accumulates and small absolute differences in tau
+    // compound over hundreds of days
+    const overlayDrift = overlayTau - 24;
+    const periodogramDrift = peakTau - 24;
+
+    console.log(
+      `  periodogram peak: ${peakTau.toFixed(4)}h (power=${periodogram.peakPower.toFixed(3)}, sig=${periodogram.significanceThreshold.toFixed(3)})`,
+    );
+    console.log(
+      `  overlay: shift=${actualShiftH.toFixed(1)}h impliedTau=${overlayTau.toFixed(4)}`,
+    );
+    console.log(
+      `  expected shift: ${expectedShiftH.toFixed(1)}h`,
+    );
+    console.log(
+      `  drift comparison: overlay=${overlayDrift.toFixed(4)} periodogram=${periodogramDrift.toFixed(4)} ratio=${(overlayDrift / periodogramDrift).toFixed(3)}`,
+    );
+
+    // The overlay's implied drift should be within 15% of the periodogram's
+    if (periodogramDrift > 0.05) {
+      const driftRatio = overlayDrift / periodogramDrift;
+      expect(driftRatio).toBeGreaterThan(0.85);
+      expect(driftRatio).toBeLessThan(1.15);
+    }
   });
 });
