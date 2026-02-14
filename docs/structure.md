@@ -30,7 +30,7 @@ src/
 
   models/
     actogramData.ts                 Actogram row building (buildActogramRows, buildTauRows)
-    circadian.ts                    Circadian period estimation (anchor classification, sliding-window robust regression)
+    circadian.ts                    Circadian period estimation (segment isolation at data gaps, anchor classification, sliding-window robust regression)
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)
     lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test)
     __tests__/

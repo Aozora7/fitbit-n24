@@ -66,6 +66,40 @@ const SMOOTH_SIGMA = 3; // Gaussian sigma for smoothing weights
 const SMOOTH_JUMP_THRESH = 2; // only smooth days with >2h jump to neighbor
 const GAP_THRESHOLD_DAYS = 14; // suppress overlay when nearest sleep record is ≥14 days away
 
+// ─── Segment splitting ────────────────────────────────────────────
+
+/** Split sorted records into independent segments at data gaps > GAP_THRESHOLD_DAYS */
+function splitIntoSegments(records: SleepRecord[]): SleepRecord[][] {
+    if (records.length === 0) return [];
+    const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const segments: SleepRecord[][] = [[sorted[0]!]];
+    let latestDateMs = new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime();
+
+    for (let i = 1; i < sorted.length; i++) {
+        const currDateMs = new Date(sorted[i]!.dateOfSleep + "T00:00:00").getTime();
+        const gapDays = Math.round((currDateMs - latestDateMs) / 86_400_000);
+        if (gapDays > GAP_THRESHOLD_DAYS) {
+            segments.push([sorted[i]!]);
+        } else {
+            segments[segments.length - 1]!.push(sorted[i]!);
+        }
+        latestDateMs = Math.max(latestDateMs, currDateMs);
+    }
+    return segments;
+}
+
+// ─── Segment result type ──────────────────────────────────────────
+
+interface SegmentResult {
+    days: CircadianDay[];
+    anchors: AnchorPoint[];
+    tierCounts: { A: number; B: number; C: number };
+    anchorCount: number;
+    residuals: number[];
+    segFirstDay: number; // global day number of segment's first record
+    segLastDay: number;  // global day number of segment's last data day
+}
+
 // ─── Anchor classification ─────────────────────────────────────────
 
 interface AnchorCandidate {
@@ -431,26 +465,16 @@ function evaluateWindow(anchors: Anchor[], centerDay: number, halfWindow: number
     };
 }
 
-// ─── Main analysis function ────────────────────────────────────────
+// ─── Segment analysis pipeline ─────────────────────────────────────
 
 /**
- * @param extraDays - Number of days to forecast beyond the data range (for circadian overlay prediction)
+ * Analyze a single contiguous segment of sleep records.
+ * @param records - Records within this segment (no gaps > GAP_THRESHOLD_DAYS)
+ * @param extraDays - Forecast days to append (only for the last segment)
+ * @param globalFirstDateMs - Epoch of the first record across all segments (for consistent day numbering)
  */
-export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0): CircadianAnalysis {
-    const empty: CircadianAnalysis = {
-        globalTau: 24,
-        globalDailyDrift: 0,
-        days: [],
-        anchors: [],
-        medianResidualHours: 0,
-        anchorCount: 0,
-        anchorTierCounts: { A: 0, B: 0, C: 0 },
-        tau: 24,
-        dailyDrift: 0,
-        rSquared: 0
-    };
-
-    if (records.length === 0) return empty;
+function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDateMs: number): SegmentResult | null {
+    if (records.length === 0) return null;
 
     // Step 1: Classify all records
     const candidates: AnchorCandidate[] = [];
@@ -459,7 +483,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         if (c) candidates.push(c);
     }
 
-    if (candidates.length < 2) return empty;
+    if (candidates.length < 2) return null;
 
     const tierCounts = { A: 0, B: 0, C: 0 };
     for (const c of candidates) tierCounts[c.tier]++;
@@ -475,9 +499,8 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
     const activeCandidates = maxGapAB > 14 ? candidates : candidates.filter(c => c.tier !== "C");
 
-    // Step 3: Build anchors sorted by date
+    // Step 3: Build anchors sorted by date (using global epoch for day numbers)
     const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-    const firstDateMs = new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime();
     const activeIds = new Set(activeCandidates.map(c => c.record.logId));
     const candMap = new Map(activeCandidates.map(c => [c.record.logId, c]));
 
@@ -486,8 +509,8 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         if (!activeIds.has(record.logId)) continue;
         const c = candMap.get(record.logId)!;
         anchors.push({
-            dayNumber: Math.round((new Date(record.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000),
-            midpointHour: sleepMidpointHour(record, firstDateMs),
+            dayNumber: Math.round((new Date(record.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000),
+            midpointHour: sleepMidpointHour(record, globalFirstDateMs),
             weight: c.weight,
             tier: c.tier,
             record,
@@ -495,7 +518,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         });
     }
 
-    if (anchors.length < 2) return empty;
+    if (anchors.length < 2) return null;
 
     // Step 4: Unwrap
     unwrapAnchorsFromSeed(anchors);
@@ -522,10 +545,13 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     }
 
     // Step 6: Per-day sliding window
-    const lastDay = Math.max(
+    const segFirstDay = Math.round((new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000);
+    const segLastDay = Math.max(
         anchors[anchors.length - 1]!.dayNumber,
-        Math.round((new Date(sorted[sorted.length - 1]!.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000)
+        Math.round((new Date(sorted[sorted.length - 1]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000)
     );
+    const localDataDays = segLastDay - segFirstDay; // local index of last data day
+    const localTotalDays = localDataDays + extraDays;
 
     // Best anchor per date for anchorSleep field
     const bestAnchorByDate = new Map<string, Anchor>();
@@ -538,52 +564,23 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
     const medianSpacing = computeMedianSpacing(anchors);
     const days: CircadianDay[] = [];
-    let tauSum = 0;
-    let tauWSum = 0;
     const allResiduals: number[] = [];
 
-    // Parallel arrays for post-hoc smoothing
-    const rawPredictedMid: number[] = []; // unwrapped predicted midpoints
+    // Parallel arrays for post-hoc smoothing (local 0-based indexing)
+    const rawPredictedMid: number[] = [];
     const rawConfScore: number[] = [];
     const rawIsForecast: boolean[] = [];
     const rawSlopeConf: number[] = [];
     const rawHalfDur: number[] = [];
 
-    const totalDays = lastDay + extraDays;
-
-    // Detect contiguous data gaps ≥ GAP_THRESHOLD_DAYS.
-    // Any day inside such a gap is marked isGap (entire gap suppressed, not just interior).
-    const recordDaySet = new Set<number>();
-    for (const r of sorted) {
-        recordDaySet.add(Math.round((new Date(r.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000));
-    }
-    const gapDays = new Set<number>();
-    {
-        let gapStart = -1;
-        for (let d = 0; d <= lastDay; d++) {
-            if (recordDaySet.has(d)) {
-                if (gapStart >= 0 && d - gapStart >= GAP_THRESHOLD_DAYS) {
-                    for (let g = gapStart; g < d; g++) gapDays.add(g);
-                }
-                gapStart = -1;
-            } else if (gapStart < 0) {
-                gapStart = d;
-            }
-        }
-        // Trailing gap (data ends before lastDay)
-        if (gapStart >= 0 && lastDay + 1 - gapStart >= GAP_THRESHOLD_DAYS) {
-            for (let g = gapStart; g <= lastDay; g++) gapDays.add(g);
-        }
-    }
-
     // Compute edge fit for forecast extrapolation: freeze the regression
     // from the last data day so forecast days extrapolate smoothly instead
     // of re-evaluating a window that drifts away from real data.
-    let edgeResult = evaluateWindow(anchors, lastDay, WINDOW_HALF);
+    let edgeResult = evaluateWindow(anchors, segLastDay, WINDOW_HALF);
     if (edgeResult.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
-        edgeResult = evaluateWindow(anchors, lastDay, Math.round(WINDOW_HALF * 1.5));
+        edgeResult = evaluateWindow(anchors, segLastDay, Math.round(WINDOW_HALF * 1.5));
         if (edgeResult.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
-            edgeResult = evaluateWindow(anchors, lastDay, MAX_WINDOW_HALF);
+            edgeResult = evaluateWindow(anchors, segLastDay, MAX_WINDOW_HALF);
         }
     }
 
@@ -592,56 +589,46 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     const edgeBaseConf =
         0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected) + 0.3 * edgeResult.avgQuality + 0.3 * (1 - Math.min(1, edgeResult.residualMAD / 3));
 
-    const firstDate = new Date(firstDateMs);
-    for (let d = 0; d <= totalDays; d++) {
+    const firstDate = new Date(globalFirstDateMs);
+    for (let localD = 0; localD <= localTotalDays; localD++) {
+        const globalD = segFirstDay + localD;
         const dayDate = new Date(firstDate);
-        dayDate.setDate(firstDate.getDate() + d);
+        dayDate.setDate(firstDate.getDate() + globalD);
         const dateStr = dayDate.getFullYear() + "-" + String(dayDate.getMonth() + 1).padStart(2, "0") + "-" + String(dayDate.getDate()).padStart(2, "0");
 
-        const isForecast = d > lastDay;
+        const isForecast = localD > localDataDays;
         let result;
 
         if (isForecast) {
-            // Use frozen edge regression for smooth extrapolation
             result = edgeResult;
         } else {
-            result = evaluateWindow(anchors, d, WINDOW_HALF);
+            result = evaluateWindow(anchors, globalD, WINDOW_HALF);
             if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
-                result = evaluateWindow(anchors, d, Math.round(WINDOW_HALF * 1.5));
+                result = evaluateWindow(anchors, globalD, Math.round(WINDOW_HALF * 1.5));
                 if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {
-                    result = evaluateWindow(anchors, d, MAX_WINDOW_HALF);
+                    result = evaluateWindow(anchors, globalD, MAX_WINDOW_HALF);
                 }
             }
         }
 
-        // Regularize local slope toward a regional estimate (not global) in weak windows.
-        // Using a regional window prevents distant historical data from pulling local tau.
         const expectedPts = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
         const slopeConf = Math.min(1, result.pointsUsed / expectedPts) *
                           (1 - Math.min(1, result.residualMAD / 4));
-        const regionalFit = evaluateWindow(anchors, d, REGULARIZATION_HALF);
-        // Use regional slope when available and plausible; fall back to global
-        // if regional is sparse or corrupted by unwrapping gaps across data holes
+        const regionalFit = evaluateWindow(anchors, globalD, REGULARIZATION_HALF);
         const useRegional = regionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
                             regionalFit.slope >= -0.5 && regionalFit.slope <= 2.0;
         const fallbackSlope = useRegional ? regionalFit.slope : globalFit.slope;
         const regularizedSlope = slopeConf * result.slope + (1 - slopeConf) * fallbackSlope;
         const localTau = 24 + regularizedSlope;
 
-        // Use the regression's fit at the data centroid, then extrapolate
-        // at the regularized slope. For symmetric windows (well-estimated),
-        // centroid ≈ d so this matches the raw prediction. For asymmetric
-        // windows (fragmented periods), the extrapolation from centroid at
-        // the regularized rate prevents wild jumps.
         const centroidPred = result.slope * result.weightedMeanX + result.intercept;
-        const predictedMid = centroidPred + regularizedSlope * (d - result.weightedMeanX);
+        const predictedMid = centroidPred + regularizedSlope * (globalD - result.weightedMeanX);
 
         const halfDur = result.avgDuration / 2;
 
-        // Confidence
         let confScore: number;
         if (isForecast) {
-            const distFromEdge = d - lastDay;
+            const distFromEdge = localD - localDataDays;
             confScore = edgeBaseConf * Math.exp(-0.1 * distFromEdge);
         } else {
             const expected = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
@@ -651,7 +638,6 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
             confScore = 0.4 * density + 0.3 * quality + 0.3 * spread;
         }
 
-        // Store values for post-hoc smoothing
         rawPredictedMid.push(predictedMid);
         rawSlopeConf.push(slopeConf);
         rawConfScore.push(confScore);
@@ -659,8 +645,6 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         rawHalfDur.push(halfDur);
 
         const normalizedMid = ((predictedMid % 24) + 24) % 24;
-
-        const isGap = !isForecast && gapDays.has(d);
 
         days.push({
             date: dateStr,
@@ -672,16 +656,12 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
             localDrift: regularizedSlope,
             anchorSleep: bestAnchorByDate.get(dateStr)?.record,
             isForecast,
-            isGap,
+            isGap: false,
         });
 
-        tauSum += localTau * confScore;
-        tauWSum += confScore;
-
-        // Collect residuals for stats (only for data days, before smoothing)
         if (!isForecast) {
             for (const a of anchors) {
-                if (Math.abs(a.dayNumber - d) < 0.5) {
+                if (Math.abs(a.dayNumber - globalD) < 0.5) {
                     allResiduals.push(Math.abs(a.midpointHour - predictedMid));
                 }
             }
@@ -694,7 +674,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     // without affecting well-estimated days' drift tracking.
 
     // 7a: Pairwise-unwrap raw predictions to remove 24h steps
-    for (let i = 1; i <= totalDays; i++) {
+    for (let i = 1; i <= localTotalDays; i++) {
         if (rawIsForecast[i] || rawIsForecast[i - 1]) continue;
         let curr = rawPredictedMid[i]!;
         const prev = rawPredictedMid[i - 1]!;
@@ -715,44 +695,39 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
     // Pass 1: Anchor-based smoothing for low-slopeConf days
     const SLOPE_CONF_THRESH = 0.4;
-    const needsAnchorSmooth: boolean[] = new Array(totalDays + 1).fill(false);
-    for (let i = 0; i <= totalDays; i++) {
+    const needsAnchorSmooth: boolean[] = new Array(localTotalDays + 1).fill(false);
+    for (let i = 0; i <= localTotalDays; i++) {
         if (rawIsForecast[i]) continue;
         if (rawSlopeConf[i]! < SLOPE_CONF_THRESH) needsAnchorSmooth[i] = true;
     }
 
-    // Expand margin for smooth transition at anchor-smoothed boundaries.
-    // Track distance to nearest core-flagged day for blend fading.
     const SMOOTH_MARGIN = 5;
-    const distToCore: number[] = new Array(totalDays + 1).fill(Infinity);
-    for (let i = 0; i <= totalDays; i++) {
+    const distToCore: number[] = new Array(localTotalDays + 1).fill(Infinity);
+    for (let i = 0; i <= localTotalDays; i++) {
         if (needsAnchorSmooth[i]) distToCore[i] = 0;
     }
-    // Forward pass
-    for (let i = 1; i <= totalDays; i++) {
+    for (let i = 1; i <= localTotalDays; i++) {
         if (distToCore[i - 1]! + 1 < distToCore[i]!) distToCore[i] = distToCore[i - 1]! + 1;
     }
-    // Backward pass
-    for (let i = totalDays - 1; i >= 0; i--) {
+    for (let i = localTotalDays - 1; i >= 0; i--) {
         if (distToCore[i + 1]! + 1 < distToCore[i]!) distToCore[i] = distToCore[i + 1]! + 1;
     }
-    for (let i = 0; i <= totalDays; i++) {
+    for (let i = 0; i <= localTotalDays; i++) {
         if (!rawIsForecast[i] && distToCore[i]! <= SMOOTH_MARGIN) {
             needsAnchorSmooth[i] = true;
         }
     }
 
-    for (let i = 0; i <= totalDays; i++) {
+    for (let i = 0; i <= localTotalDays; i++) {
         if (!needsAnchorSmooth[i]) continue;
 
         let wSum = 0;
         let wResidualSum = 0;
-        const trend_i = smoothGlobalFit.slope * i + smoothGlobalFit.intercept;
+        const globalI = segFirstDay + i;
+        const trend_i = smoothGlobalFit.slope * globalI + smoothGlobalFit.intercept;
 
-        // Smooth using actual anchor positions — captures local slope
-        // changes the global trend misses
         for (const a of anchors) {
-            const dist = Math.abs(a.dayNumber - i);
+            const dist = Math.abs(a.dayNumber - globalI);
             if (dist > SMOOTH_HALF) continue;
             const gw = gaussian(dist, SMOOTH_SIGMA);
             const w = gw * a.weight;
@@ -780,8 +755,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     // Repeatedly detect and smooth jumps until none >SMOOTH_JUMP_THRESH remain.
     // Usually converges in 1-2 iterations; cap at 3 for safety.
     for (let iter = 0; iter < 3; iter++) {
-        // Re-unwrap after modifications
-        for (let i = 1; i <= totalDays; i++) {
+        for (let i = 1; i <= localTotalDays; i++) {
             if (rawIsForecast[i] || rawIsForecast[i - 1]) continue;
             let curr = rawPredictedMid[i]!;
             const prev = rawPredictedMid[i - 1]!;
@@ -791,13 +765,13 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         }
 
         const normMid: number[] = [];
-        for (let i = 0; i <= totalDays; i++) {
+        for (let i = 0; i <= localTotalDays; i++) {
             normMid.push(((rawPredictedMid[i]! % 24) + 24) % 24);
         }
 
-        const needsJumpSmooth: boolean[] = new Array(totalDays + 1).fill(false);
+        const needsJumpSmooth: boolean[] = new Array(localTotalDays + 1).fill(false);
         let anyJumps = false;
-        for (let i = 0; i <= totalDays; i++) {
+        for (let i = 0; i <= localTotalDays; i++) {
             if (rawIsForecast[i]) continue;
             let maxJump = 0;
             if (i > 0 && !rawIsForecast[i - 1]) {
@@ -805,7 +779,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
                 if (d > 12) d = 24 - d;
                 maxJump = Math.max(maxJump, d);
             }
-            if (i < totalDays && !rawIsForecast[i + 1]) {
+            if (i < localTotalDays && !rawIsForecast[i + 1]) {
                 let d = Math.abs(normMid[i]! - normMid[i + 1]!);
                 if (d > 12) d = 24 - d;
                 maxJump = Math.max(maxJump, d);
@@ -819,26 +793,28 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         if (!anyJumps) break;
 
         const jumpFlagged = needsJumpSmooth.slice();
-        for (let i = 0; i <= totalDays; i++) {
+        for (let i = 0; i <= localTotalDays; i++) {
             if (!jumpFlagged[i]) continue;
-            for (let j = Math.max(0, i - SMOOTH_MARGIN); j <= Math.min(totalDays, i + SMOOTH_MARGIN); j++) {
+            for (let j = Math.max(0, i - SMOOTH_MARGIN); j <= Math.min(localTotalDays, i + SMOOTH_MARGIN); j++) {
                 if (!rawIsForecast[j]) needsJumpSmooth[j] = true;
             }
         }
 
-        for (let i = 0; i <= totalDays; i++) {
+        for (let i = 0; i <= localTotalDays; i++) {
             if (!needsJumpSmooth[i]) continue;
 
             let wSum = 0;
             let wResidualSum = 0;
-            const trend_i = smoothGlobalFit.slope * i + smoothGlobalFit.intercept;
+            const globalI = segFirstDay + i;
+            const trend_i = smoothGlobalFit.slope * globalI + smoothGlobalFit.intercept;
 
-            for (let j = Math.max(0, i - SMOOTH_HALF); j <= Math.min(totalDays, i + SMOOTH_HALF); j++) {
+            for (let j = Math.max(0, i - SMOOTH_HALF); j <= Math.min(localTotalDays, i + SMOOTH_HALF); j++) {
                 if (rawIsForecast[j]) continue;
                 const dist = Math.abs(i - j);
                 const gw = gaussian(dist, SMOOTH_SIGMA);
                 const w = gw * rawConfScore[j]!;
-                const trend_j = smoothGlobalFit.slope * j + smoothGlobalFit.intercept;
+                const globalJ = segFirstDay + j;
+                const trend_j = smoothGlobalFit.slope * globalJ + smoothGlobalFit.intercept;
                 wResidualSum += w * (rawPredictedMid[j]! - trend_j);
                 wSum += w;
             }
@@ -925,49 +901,131 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     }
 
     // Recompute forecast days to maintain continuity with the (now smoothed)
-    // last data day. Smoothing passes modify data days but skip forecasts,
-    // so the frozen edge regression may no longer connect smoothly.
+    // last data day.
     if (extraDays > 0) {
-        const lastDataMid = (((days[lastDay]!.nightStartHour + days[lastDay]!.nightEndHour) / 2) % 24 + 24) % 24;
+        const lastDataMid = (((days[localDataDays]!.nightStartHour + days[localDataDays]!.nightEndHour) / 2) % 24 + 24) % 24;
         const edgeSlopeConf = Math.min(1, edgeResult.pointsUsed / (medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10)) *
                               (1 - Math.min(1, edgeResult.residualMAD / 4));
         const edgeSlope = edgeSlopeConf * edgeResult.slope + (1 - edgeSlopeConf) * globalFit.slope;
-        for (let d = lastDay + 1; d <= totalDays; d++) {
-            const dist = d - lastDay;
+        for (let localD = localDataDays + 1; localD <= localTotalDays; localD++) {
+            const dist = localD - localDataDays;
             const forecastMid = ((lastDataMid + edgeSlope * dist) % 24 + 24) % 24;
-            const halfDur = rawHalfDur[d]!;
-            days[d]!.nightStartHour = forecastMid - halfDur;
-            days[d]!.nightEndHour = forecastMid + halfDur;
+            const halfDur = rawHalfDur[localD]!;
+            days[localD]!.nightStartHour = forecastMid - halfDur;
+            days[localD]!.nightEndHour = forecastMid + halfDur;
         }
     }
 
-    // Compute globalTau from overlay midpoints (not from averaged localTau,
-    // which uses regularized slopes and diverges from the actual overlay).
-    // Unwrap the final overlay midpoints and fit a weighted regression to
-    // extract the slope — this directly measures the overlay's drift rate.
-    const overlayMids: { x: number; y: number; w: number }[] = [];
-    {
-        let prevMid = -Infinity;
-        let d = 0;
-        for (const day of days) {
-            if (!day.isForecast) {
-                let mid = (day.nightStartHour + day.nightEndHour) / 2;
-                if (prevMid > -Infinity) {
-                    while (mid - prevMid > 12) mid -= 24;
-                    while (prevMid - mid > 12) mid += 24;
-                }
-                overlayMids.push({ x: d, y: mid, w: day.confidenceScore });
-                prevMid = mid;
+    return {
+        days,
+        anchors: anchors.map(a => ({
+            dayNumber: a.dayNumber,
+            midpointHour: a.midpointHour,
+            weight: a.weight,
+            tier: a.tier,
+            date: a.date
+        })),
+        tierCounts,
+        anchorCount: anchors.length,
+        residuals: allResiduals,
+        segFirstDay,
+        segLastDay,
+    };
+}
+
+// ─── Segment merging ──────────────────────────────────────────────
+
+function mergeSegmentResults(
+    segments: SegmentResult[],
+    globalFirstDateMs: number,
+): CircadianAnalysis {
+    const empty: CircadianAnalysis = {
+        globalTau: 24, globalDailyDrift: 0, days: [], anchors: [],
+        medianResidualHours: 0, anchorCount: 0, anchorTierCounts: { A: 0, B: 0, C: 0 },
+        tau: 24, dailyDrift: 0, rSquared: 0
+    };
+
+    if (segments.length === 0) return empty;
+
+    segments.sort((a, b) => a.segFirstDay - b.segFirstDay);
+
+    const allDays: CircadianDay[] = [];
+    const allAnchors: AnchorPoint[] = [];
+    const allResiduals: number[] = [];
+    const tierCounts = { A: 0, B: 0, C: 0 };
+    let anchorCount = 0;
+
+    const firstDate = new Date(globalFirstDateMs);
+
+    for (let si = 0; si < segments.length; si++) {
+        const seg = segments[si]!;
+
+        // Fill gap days before this segment (after previous segment)
+        if (si > 0) {
+            const prevEnd = segments[si - 1]!.segLastDay;
+            for (let d = prevEnd + 1; d < seg.segFirstDay; d++) {
+                const dayDate = new Date(firstDate);
+                dayDate.setDate(firstDate.getDate() + d);
+                const dateStr = dayDate.getFullYear() + "-" + String(dayDate.getMonth() + 1).padStart(2, "0") + "-" + String(dayDate.getDate()).padStart(2, "0");
+                allDays.push({
+                    date: dateStr,
+                    nightStartHour: 0,
+                    nightEndHour: 0,
+                    confidenceScore: 0,
+                    confidence: "low",
+                    localTau: 24,
+                    localDrift: 0,
+                    isForecast: false,
+                    isGap: true,
+                });
             }
-            d++;
         }
+
+        allDays.push(...seg.days);
+        allAnchors.push(...seg.anchors);
+        allResiduals.push(...seg.residuals);
+        tierCounts.A += seg.tierCounts.A;
+        tierCounts.B += seg.tierCounts.B;
+        tierCounts.C += seg.tierCounts.C;
+        anchorCount += seg.anchorCount;
     }
+
+    // Compute globalTau from overlay midpoints, unwrapping per-segment
+    // then bridging across gaps to maintain a continuous phase sequence.
+    const overlayMids: { x: number; y: number; w: number }[] = [];
+    let prevSegEndMid = -Infinity;
+
+    for (const seg of segments) {
+        let prevMid = -Infinity;
+
+        for (const day of seg.days) {
+            if (day.isForecast || day.isGap) continue;
+            let mid = (day.nightStartHour + day.nightEndHour) / 2;
+
+            if (prevMid > -Infinity) {
+                while (mid - prevMid > 12) mid -= 24;
+                while (prevMid - mid > 12) mid += 24;
+            } else if (prevSegEndMid > -Infinity) {
+                // Bridge between segments: snap to within 12h of previous segment's end
+                while (mid - prevSegEndMid > 12) mid -= 24;
+                while (prevSegEndMid - mid > 12) mid += 24;
+            }
+
+            const dayDate = new Date(day.date + "T00:00:00");
+            const globalD = Math.round((dayDate.getTime() - globalFirstDateMs) / 86_400_000);
+            overlayMids.push({ x: globalD, y: mid, w: day.confidenceScore });
+            prevMid = mid;
+        }
+
+        if (prevMid > -Infinity) prevSegEndMid = prevMid;
+    }
+
     let globalTau: number;
     if (overlayMids.length >= 2) {
         const overlayFit = weightedLinearRegression(overlayMids);
         globalTau = 24 + overlayFit.slope;
     } else {
-        globalTau = tauWSum > 0 ? tauSum / tauWSum : 24;
+        globalTau = 24;
     }
     const globalDrift = globalTau - 24;
 
@@ -977,21 +1035,51 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     return {
         globalTau,
         globalDailyDrift: globalDrift,
-        days,
-        anchors: anchors.map(a => ({
-            dayNumber: a.dayNumber,
-            midpointHour: a.midpointHour,
-            weight: a.weight,
-            tier: a.tier,
-            date: a.date
-        })),
+        days: allDays,
+        anchors: allAnchors,
         medianResidualHours: medResidual,
-        anchorCount: anchors.length,
+        anchorCount,
         anchorTierCounts: tierCounts,
         tau: globalTau,
         dailyDrift: globalDrift,
         rSquared: 1 - Math.min(1, medResidual / 3)
     };
+}
+
+// ─── Main analysis function ────────────────────────────────────────
+
+/**
+ * Orchestrator: splits records into independent segments at data gaps,
+ * analyzes each segment with the full pipeline, and merges results.
+ * @param extraDays - Number of days to forecast beyond the data range
+ */
+export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0): CircadianAnalysis {
+    const empty: CircadianAnalysis = {
+        globalTau: 24, globalDailyDrift: 0, days: [], anchors: [],
+        medianResidualHours: 0, anchorCount: 0, anchorTierCounts: { A: 0, B: 0, C: 0 },
+        tau: 24, dailyDrift: 0, rSquared: 0
+    };
+
+    if (records.length === 0) return empty;
+
+    // Sort all records and compute global epoch
+    const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const globalFirstDateMs = new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime();
+
+    // Split into independent segments at data gaps > GAP_THRESHOLD_DAYS
+    const recordSegments = splitIntoSegments(sorted);
+
+    // Analyze each segment independently
+    const segmentResults: SegmentResult[] = [];
+    for (let i = 0; i < recordSegments.length; i++) {
+        const isLast = i === recordSegments.length - 1;
+        const result = analyzeSegment(recordSegments[i]!, isLast ? extraDays : 0, globalFirstDateMs);
+        if (result) segmentResults.push(result);
+    }
+
+    if (segmentResults.length === 0) return empty;
+
+    return mergeSegmentResults(segmentResults, globalFirstDateMs);
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -1021,4 +1109,5 @@ export const _internals = {
     snapToNeighbors,
     unwrapAnchorsFromSeed,
     GAP_THRESHOLD_DAYS,
+    splitIntoSegments,
 };

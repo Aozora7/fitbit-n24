@@ -438,12 +438,17 @@ function overlayMid(day: { nightStartHour: number; nightEndHour: number }): numb
   return (((day.nightStartHour + day.nightEndHour) / 2) % 24 + 24) % 24;
 }
 
-/** Compute max day-to-day midpoint jump (circular) across non-forecast days */
+/** Compute max day-to-day midpoint jump (circular) across consecutive non-forecast, non-gap days */
 function maxOverlayJump(days: CircadianAnalysis["days"]): { maxJump: number; atDate: string } {
-  const data = days.filter(d => !d.isForecast);
+  const data = days.filter(d => !d.isForecast && !d.isGap);
   let maxJump = 0;
   let atDate = "";
   for (let i = 1; i < data.length; i++) {
+    // Skip jumps across segment boundaries (non-consecutive calendar days)
+    const prevMs = new Date(data[i - 1]!.date + "T00:00:00").getTime();
+    const currMs = new Date(data[i]!.date + "T00:00:00").getTime();
+    if (Math.round((currMs - prevMs) / 86_400_000) > 1) continue;
+
     const prev = overlayMid(data[i - 1]!);
     const curr = overlayMid(data[i]!);
     let delta = Math.abs(curr - prev);
@@ -556,12 +561,22 @@ describe.skipIf(!hasRealData)("scoring: real data", () => {
 
 /** Compute cumulative phase shift from overlay day-to-day deltas (in hours) */
 function cumulativeShiftHours(days: CircadianAnalysis["days"]): number {
-  const data = days.filter(d => !d.isForecast);
+  const data = days.filter(d => !d.isForecast && !d.isGap);
   if (data.length < 2) return 0;
   let prevMid = overlayMid(data[0]!);
   let accumulated = 0;
   for (let i = 1; i < data.length; i++) {
+    // Skip drift across segment boundaries (non-consecutive calendar days)
+    const prevMs = new Date(data[i - 1]!.date + "T00:00:00").getTime();
+    const currMs = new Date(data[i]!.date + "T00:00:00").getTime();
+    const dayGap = Math.round((currMs - prevMs) / 86_400_000);
+
     const mid = overlayMid(data[i]!);
+    if (dayGap > 1) {
+      // Don't accumulate shift across gaps; just update prevMid
+      prevMid = mid;
+      continue;
+    }
     let delta = mid - prevMid;
     if (delta > 12) delta -= 24;
     if (delta < -12) delta += 24;

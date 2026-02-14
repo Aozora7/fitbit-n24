@@ -313,9 +313,13 @@ After all per-day predictions are computed, a two-pass post-hoc smoothing correc
 4. For qualifying runs, replace overlay with forward circular interpolation between the entry point (last non-backward day before the run) and exit point (first non-backward day after). Sanity check: skip if the interpolation rate exceeds 3h/day.
 5. This ensures the overlay always advances in the circadian drift direction through disrupted sleep periods, where off-rhythm anchors would otherwise pull the regression backward.
 
-### Data gap suppression
+### Segment isolation at data gaps
 
-When the dataset contains contiguous data gaps ≥14 days (no sleep records on any day in the run), the algorithm marks every day in those gaps with `isGap: true`. The entire gap is suppressed — the renderer draws no overlay and tooltips don't show circadian info for any day within the gap. This prevents fabricated extrapolations from appearing in periods with no data (e.g., a 75-day gap between data collection periods). Gap detection uses all sleep records (not just anchors), so any record — including naps and low-quality sleeps — breaks a gap. Gaps shorter than 14 days are not suppressed.
+When the dataset contains data gaps >14 days between consecutive records, `analyzeCircadian` splits the records into independent segments at each gap boundary using `splitIntoSegments`. Each segment is analyzed with the full pipeline (`analyzeSegment`) — anchor classification, unwrapping, outlier detection, sliding-window regression, and smoothing all operate only on the segment's own data. This prevents pre-gap data from influencing post-gap estimates (e.g., a 300-day tau=24.2 segment won't pull the local tau of a post-gap tau=25.0 segment).
+
+After independent analysis, `mergeSegmentResults` concatenates the per-segment days arrays, inserts `isGap: true` placeholder days for the gap periods between segments, and computes the `globalTau` from overlay midpoints across all segments (unwrapping per-segment, then bridging across gaps to maintain a continuous phase sequence for the regression).
+
+Segments with fewer than 2 anchor candidates are skipped (too few records for meaningful analysis). Forecast days (`extraDays`) are only appended to the last segment. Gaps shorter than 14 days are not split — those records stay in the same segment and are analyzed together.
 
 ### Forecast extrapolation
 

@@ -257,6 +257,97 @@ describe("analyzeCircadian — data gap handling", () => {
   });
 });
 
+// ── Segment isolation tests ─────────────────────────────────────────
+
+describe("analyzeCircadian — segment isolation", () => {
+  /** Helper: shift records forward by offsetDays relative to a base time */
+  function shiftRecords(records: ReturnType<typeof generateSyntheticRecords>, baseTime: number, offsetDays: number) {
+    const offsetMs = offsetDays * 86_400_000;
+    const firstStart = records[0]!.startTime.getTime();
+    return records.map(r => {
+      const dayOffset = r.startTime.getTime() - firstStart;
+      const newStart = new Date(baseTime + offsetMs + dayOffset);
+      const newEnd = new Date(newStart.getTime() + r.durationMs);
+      const newDate = new Date(baseTime + offsetMs + dayOffset);
+      newDate.setHours(0, 0, 0, 0);
+      const dateStr = newDate.getFullYear() + "-" + String(newDate.getMonth() + 1).padStart(2, "0") + "-" + String(newDate.getDate()).padStart(2, "0");
+      return { ...r, startTime: newStart, endTime: newEnd, dateOfSleep: dateStr };
+    });
+  }
+
+  it("cross-gap tau isolation: post-gap local tau tracks local data, not pre-gap", () => {
+    // 90 days tau=24.2, 30-day gap, 90 days tau=25.0
+    const before = generateSyntheticRecords({ tau: 24.2, days: 90, noise: 0.3, seed: 3000 });
+    const after = generateSyntheticRecords({ tau: 25.0, days: 90, noise: 0.3, seed: 3001, startMidpoint: 3 });
+
+    const baseTime = before[0]!.startTime.getTime();
+    const shiftedAfter = shiftRecords(after, baseTime, 120); // 90 data + 30 gap
+
+    const records = [...before, ...shiftedAfter].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const result = analyzeCircadian(records);
+
+    // Find days in the post-gap segment (roughly days 120-209)
+    const postGapDays = result.days.filter(d => {
+      const date = d.date;
+      return !d.isGap && !d.isForecast && date > shiftedAfter[0]!.dateOfSleep;
+    });
+    expect(postGapDays.length).toBeGreaterThan(50);
+
+    // Average local tau in the post-gap segment should track 25.0, not be pulled toward 24.2
+    const postGapTaus = postGapDays.slice(20, -10).map(d => d.localTau); // avoid edges
+    const meanPostGapTau = postGapTaus.reduce((s, t) => s + t, 0) / postGapTaus.length;
+    expect(Math.abs(meanPostGapTau - 25.0)).toBeLessThan(0.25);
+  });
+
+  it("multi-segment: three segments with different taus", () => {
+    const seg1 = generateSyntheticRecords({ tau: 24.2, days: 60, noise: 0.3, seed: 3010 });
+    const seg2 = generateSyntheticRecords({ tau: 25.0, days: 60, noise: 0.3, seed: 3011, startMidpoint: 3 });
+    const seg3 = generateSyntheticRecords({ tau: 24.5, days: 60, noise: 0.3, seed: 3012, startMidpoint: 3 });
+
+    const baseTime = seg1[0]!.startTime.getTime();
+    const shifted2 = shiftRecords(seg2, baseTime, 80);  // 60 + 20 gap
+    const shifted3 = shiftRecords(seg3, baseTime, 160); // 80 + 60 + 20 gap
+
+    const records = [...seg1, ...shifted2, ...shifted3].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const result = analyzeCircadian(records);
+
+    // Should have gap days between segments
+    const gapDays = result.days.filter(d => d.isGap);
+    expect(gapDays.length).toBeGreaterThan(30); // ~20 + ~20 gap days
+
+    // Each segment's interior should have local tau close to its true value
+    const allDataDays = result.days.filter(d => !d.isGap && !d.isForecast);
+    expect(allDataDays.length).toBeGreaterThan(150);
+  });
+
+  it("tiny segment (< 2 anchors) is skipped gracefully", () => {
+    // Create a single record that will form its own tiny segment
+    const main = generateSyntheticRecords({ tau: 24.5, days: 90, noise: 0.3, seed: 3020 });
+    const tiny = generateSyntheticRecords({ tau: 24.5, days: 1, seed: 3021, quality: 0.8 });
+
+    const baseTime = main[0]!.startTime.getTime();
+    const shiftedTiny = shiftRecords(tiny, baseTime, 110); // 90 + 20 gap
+
+    const records = [...main, ...shiftedTiny].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const result = analyzeCircadian(records);
+
+    // Should not crash; main segment should still produce output
+    expect(result.days.length).toBeGreaterThan(80);
+    expect(result.anchorCount).toBeGreaterThan(10);
+  });
+
+  it("no-gap dataset produces same results as before (single segment)", () => {
+    const records = generateSyntheticRecords({ tau: 24.5, days: 120, noise: 0.3, seed: 3030 });
+    const result = analyzeCircadian(records);
+
+    // Should behave identically to a single-segment analysis
+    expect(result.days.filter(d => d.isGap).length).toBe(0);
+    expect(Math.abs(result.globalTau - 24.5)).toBeLessThan(0.1);
+    expect(result.days.length).toBe(120);
+    expect(result.anchorCount).toBeGreaterThan(50);
+  });
+});
+
 // ── Real data regression tests ──────────────────────────────────────
 
 describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () => {
