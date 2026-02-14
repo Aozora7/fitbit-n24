@@ -140,7 +140,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
             // In tau mode, row.date may include time — extract just the date part for lookup
             const rowDateKey = row.date.slice(0, 10);
             const cd = circadianMap.get(rowDateKey);
-            if (cd) {
+            if (cd && !cd.isGap) {
                 if (tauMode && row.startMs != null) {
                     // In tau mode, compute overlay position relative to row start
                     const nightStartAbsH = ((cd.nightStartHour % 24) + 24) % 24;
@@ -252,7 +252,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                 // In tau mode, row.date may include time — extract just the date part
                 const rowDateKey = row.date.slice(0, 10);
                 const cd = circadianMap.get(rowDateKey);
-                if (!cd) continue;
+                if (!cd || cd.isGap) continue;
 
                 const y = plotTop + i * cfg.rowHeight;
 

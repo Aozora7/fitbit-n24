@@ -313,6 +313,10 @@ After all per-day predictions are computed, a two-pass post-hoc smoothing correc
 4. For qualifying runs, replace overlay with forward circular interpolation between the entry point (last non-backward day before the run) and exit point (first non-backward day after). Sanity check: skip if the interpolation rate exceeds 3h/day.
 5. This ensures the overlay always advances in the circadian drift direction through disrupted sleep periods, where off-rhythm anchors would otherwise pull the regression backward.
 
+### Data gap suppression
+
+When the dataset contains contiguous data gaps ≥14 days (no sleep records on any day in the run), the algorithm marks every day in those gaps with `isGap: true`. The entire gap is suppressed — the renderer draws no overlay and tooltips don't show circadian info for any day within the gap. This prevents fabricated extrapolations from appearing in periods with no data (e.g., a 75-day gap between data collection periods). Gap detection uses all sleep records (not just anchors), so any record — including naps and low-quality sleeps — breaks a gap. Gaps shorter than 14 days are not suppressed.
+
 ### Forecast extrapolation
 
 When forecast days are requested, the regression from the last data day (the "edge fit") is frozen and extrapolated forward. Forecast confidence decays exponentially: `edgeBaseConfidence * exp(-0.1 * daysFromEdge)`, reaching ~50% at 7 days and ~5% at 30 days. The forecast overlay is drawn in amber (`rgba(251, 191, 36, alpha)`) to distinguish it from the purple historical overlay.
@@ -324,7 +328,7 @@ When forecast days are requested, the regression from the last data day (the "ed
 - `anchors[]`: Array of `AnchorPoint` with `dayNumber`, `midpointHour`, `weight`, `tier`, `date`
 - `anchorCount` / `anchorTierCounts`: How many anchors in each tier
 - `medianResidualHours`: Median absolute deviation of anchor residuals from the model
-- `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `localDrift`, `confidenceScore`, `confidence` (tier: "high"/"medium"/"low"), `anchorSleep?`, `isForecast`
+- `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `localDrift`, `confidenceScore`, `confidence` (tier: "high"/"medium"/"low"), `anchorSleep?`, `isForecast`, `isGap`
 - Legacy compat fields: `tau`, `dailyDrift`, `rSquared`
 
 ## Phase coherence periodogram

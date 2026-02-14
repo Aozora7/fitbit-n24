@@ -12,6 +12,7 @@ export interface CircadianDay {
     localDrift: number;
     anchorSleep?: SleepRecord;
     isForecast: boolean;
+    isGap: boolean;
 }
 
 export interface AnchorPoint {
@@ -63,6 +64,7 @@ const REGULARIZATION_HALF = 90; // half-width for regional slope fallback (avoid
 const SMOOTH_HALF = 7; // post-hoc smoothing: ±7 day neighborhood
 const SMOOTH_SIGMA = 3; // Gaussian sigma for smoothing weights
 const SMOOTH_JUMP_THRESH = 2; // only smooth days with >2h jump to neighbor
+const GAP_THRESHOLD_DAYS = 14; // suppress overlay when nearest sleep record is ≥14 days away
 
 // ─── Anchor classification ─────────────────────────────────────────
 
@@ -549,6 +551,31 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
     const totalDays = lastDay + extraDays;
 
+    // Detect contiguous data gaps ≥ GAP_THRESHOLD_DAYS.
+    // Any day inside such a gap is marked isGap (entire gap suppressed, not just interior).
+    const recordDaySet = new Set<number>();
+    for (const r of sorted) {
+        recordDaySet.add(Math.round((new Date(r.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000));
+    }
+    const gapDays = new Set<number>();
+    {
+        let gapStart = -1;
+        for (let d = 0; d <= lastDay; d++) {
+            if (recordDaySet.has(d)) {
+                if (gapStart >= 0 && d - gapStart >= GAP_THRESHOLD_DAYS) {
+                    for (let g = gapStart; g < d; g++) gapDays.add(g);
+                }
+                gapStart = -1;
+            } else if (gapStart < 0) {
+                gapStart = d;
+            }
+        }
+        // Trailing gap (data ends before lastDay)
+        if (gapStart >= 0 && lastDay + 1 - gapStart >= GAP_THRESHOLD_DAYS) {
+            for (let g = gapStart; g <= lastDay; g++) gapDays.add(g);
+        }
+    }
+
     // Compute edge fit for forecast extrapolation: freeze the regression
     // from the last data day so forecast days extrapolate smoothly instead
     // of re-evaluating a window that drifts away from real data.
@@ -633,6 +660,8 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
         const normalizedMid = ((predictedMid % 24) + 24) % 24;
 
+        const isGap = !isForecast && gapDays.has(d);
+
         days.push({
             date: dateStr,
             nightStartHour: normalizedMid - halfDur,
@@ -642,7 +671,8 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
             localTau,
             localDrift: regularizedSlope,
             anchorSleep: bestAnchorByDate.get(dateStr)?.record,
-            isForecast
+            isForecast,
+            isGap,
         });
 
         tauSum += localTau * confScore;
@@ -990,4 +1020,5 @@ export const _internals = {
     expandFromRegion,
     snapToNeighbors,
     unwrapAnchorsFromSeed,
+    GAP_THRESHOLD_DAYS,
 };

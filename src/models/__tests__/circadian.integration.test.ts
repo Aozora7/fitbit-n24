@@ -143,6 +143,120 @@ describe("analyzeCircadian — locality of tau estimation", () => {
   });
 });
 
+// ── Data gap handling ───────────────────────────────────────────────
+
+describe("analyzeCircadian — data gap handling", () => {
+  it("marks days in a 30-day gap as isGap", () => {
+    // 60 days of data, then 30-day gap, then 60 more days
+    const before = generateSyntheticRecords({ tau: 24.5, days: 60, seed: 200 });
+    const after = generateSyntheticRecords({ tau: 24.5, days: 60, seed: 201, startMidpoint: 3 });
+
+    // Shift "after" records forward by 90 days (60 data + 30 gap)
+    const offsetMs = 90 * 86_400_000;
+    const baseTime = before[0]!.startTime.getTime();
+    const shiftedAfter = after.map(r => {
+      const dayOffset = r.startTime.getTime() - after[0]!.startTime.getTime();
+      const newStart = new Date(baseTime + offsetMs + dayOffset);
+      const newEnd = new Date(newStart.getTime() + r.durationMs);
+      const newDate = new Date(baseTime + offsetMs + dayOffset);
+      newDate.setHours(0, 0, 0, 0);
+      const dateStr = newDate.getFullYear() + "-" + String(newDate.getMonth() + 1).padStart(2, "0") + "-" + String(newDate.getDate()).padStart(2, "0");
+      return { ...r, startTime: newStart, endTime: newEnd, dateOfSleep: dateStr };
+    });
+
+    const records = [...before, ...shiftedAfter].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const result = analyzeCircadian(records);
+
+    // The entire gap should be isGap — approximately 30 days
+    // (exact count depends on whether last data day falls on day 59 or 60)
+    const gapDays = result.days.filter(d => d.isGap);
+    expect(gapDays.length).toBeGreaterThanOrEqual(28);
+    expect(gapDays.length).toBeLessThanOrEqual(31);
+
+    // Days with data should NOT be isGap
+    const dataDays = result.days.filter(d => !d.isGap && !d.isForecast);
+    expect(dataDays.length).toBeGreaterThan(100);
+  });
+
+  it("does not mark days in a 10-day gap as isGap (below threshold)", () => {
+    const before = generateSyntheticRecords({ tau: 24.5, days: 60, seed: 210 });
+    const after = generateSyntheticRecords({ tau: 24.5, days: 60, seed: 211 });
+
+    // Shift "after" records forward by 70 days (60 data + 10 gap)
+    const offsetMs = 70 * 86_400_000;
+    const baseTime = before[0]!.startTime.getTime();
+    const shiftedAfter = after.map(r => {
+      const dayOffset = r.startTime.getTime() - after[0]!.startTime.getTime();
+      const newStart = new Date(baseTime + offsetMs + dayOffset);
+      const newEnd = new Date(newStart.getTime() + r.durationMs);
+      const newDate = new Date(baseTime + offsetMs + dayOffset);
+      newDate.setHours(0, 0, 0, 0);
+      const dateStr = newDate.getFullYear() + "-" + String(newDate.getMonth() + 1).padStart(2, "0") + "-" + String(newDate.getDate()).padStart(2, "0");
+      return { ...r, startTime: newStart, endTime: newEnd, dateOfSleep: dateStr };
+    });
+
+    const records = [...before, ...shiftedAfter].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const result = analyzeCircadian(records);
+
+    // No days should be isGap — the 10-day gap is below the 14-day threshold
+    const gapDays = result.days.filter(d => d.isGap);
+    expect(gapDays.length).toBe(0);
+  });
+
+  it("gap boundary days have correct isGap values", () => {
+    // 60 days data, 40-day gap, 60 days data
+    const before = generateSyntheticRecords({ tau: 24.5, days: 60, seed: 220 });
+    const after = generateSyntheticRecords({ tau: 24.5, days: 60, seed: 221 });
+
+    const offsetMs = 100 * 86_400_000; // 60 + 40 gap
+    const baseTime = before[0]!.startTime.getTime();
+    const shiftedAfter = after.map(r => {
+      const dayOffset = r.startTime.getTime() - after[0]!.startTime.getTime();
+      const newStart = new Date(baseTime + offsetMs + dayOffset);
+      const newEnd = new Date(newStart.getTime() + r.durationMs);
+      const newDate = new Date(baseTime + offsetMs + dayOffset);
+      newDate.setHours(0, 0, 0, 0);
+      const dateStr = newDate.getFullYear() + "-" + String(newDate.getMonth() + 1).padStart(2, "0") + "-" + String(newDate.getDate()).padStart(2, "0");
+      return { ...r, startTime: newStart, endTime: newEnd, dateOfSleep: dateStr };
+    });
+
+    const records = [...before, ...shiftedAfter].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const result = analyzeCircadian(records);
+
+    // Find the last non-gap day before the gap and first non-gap day after
+    const lastBeforeGap = before[before.length - 1]!.dateOfSleep;
+    const firstAfterGap = shiftedAfter[0]!.dateOfSleep;
+
+    // Days with data should NOT be isGap
+    const dayBeforeGap = result.days.find(d => d.date === lastBeforeGap)!;
+    expect(dayBeforeGap.isGap).toBe(false);
+    const dayAfterGap = result.days.find(d => d.date === firstAfterGap)!;
+    expect(dayAfterGap.isGap).toBe(false);
+
+    // Day in the middle of the gap should be isGap
+    const midIdx = result.days.indexOf(dayBeforeGap) + 20;
+    expect(result.days[midIdx]!.isGap).toBe(true);
+
+    // First day after last data should be isGap (entire gap is suppressed)
+    const firstGapIdx = result.days.indexOf(dayBeforeGap) + 1;
+    expect(result.days[firstGapIdx]!.isGap).toBe(true);
+
+    // Last day before data resumes should be isGap
+    const lastGapIdx = result.days.indexOf(dayAfterGap) - 1;
+    expect(result.days[lastGapIdx]!.isGap).toBe(true);
+
+    // Entire gap should be ~40 days
+    const gapDays = result.days.filter(d => d.isGap);
+    expect(gapDays.length).toBeGreaterThanOrEqual(38);
+    expect(gapDays.length).toBeLessThanOrEqual(42);
+
+    // Forecast days should never be isGap
+    const forecastResult = analyzeCircadian(records, 14);
+    const forecastDays = forecastResult.days.filter(d => d.isForecast);
+    expect(forecastDays.every(d => !d.isGap)).toBe(true);
+  });
+});
+
 // ── Real data regression tests ──────────────────────────────────────
 
 describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () => {
@@ -172,6 +286,23 @@ describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () =>
       expect(day.confidenceScore).toBeLessThanOrEqual(1);
       expect(["high", "medium", "low"]).toContain(day.confidence);
     }
+  });
+
+  it("marks long data gaps as isGap", () => {
+    const records = loadRealData();
+    const result = analyzeCircadian(records);
+
+    // The 75-day gap (2024-09-03 to 2024-11-17) should have isGap days in its interior
+    const gapInterior = result.days.filter(d => {
+      const date = d.date;
+      return date >= "2024-09-20" && date <= "2024-11-01";
+    });
+    expect(gapInterior.length).toBeGreaterThan(0);
+    expect(gapInterior.every(d => d.isGap)).toBe(true);
+
+    // Days with actual data should not be isGap
+    const daysWithAnchors = result.days.filter(d => d.anchorSleep != null);
+    expect(daysWithAnchors.every(d => !d.isGap)).toBe(true);
   });
 
   it("forecast extends smoothly from data", () => {
