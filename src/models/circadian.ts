@@ -60,7 +60,7 @@ const OUTLIER_THRESHOLD_HOURS = 8; // only catch genuine data errors
 const SEED_HALF = 21; // half-width of seed search window
 const MIN_SEED_ANCHORS = 4; // minimum anchors to evaluate a seed window
 const EXPANSION_LOOKBACK_DAYS = 30; // how far back to look when expanding
-const REGULARIZATION_HALF = 90; // half-width for regional slope fallback (avoids distant data pollution)
+const REGULARIZATION_HALF = 60; // half-width for regional slope fallback (120-day window; responsive to transitions)
 const SMOOTH_HALF = 7; // post-hoc smoothing: ±7 day neighborhood
 const SMOOTH_SIGMA = 3; // Gaussian sigma for smoothing weights
 const SMOOTH_JUMP_THRESH = 2; // only smooth days with >2h jump to neighbor
@@ -845,7 +845,7 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
             (((d.nightStartHour + d.nightEndHour) / 2) % 24 + 24) % 24
         );
 
-        const expectedDelta = globalFit.slope;
+        const expectedDelta = edgeResult.slope;
         const driftSign = expectedDelta >= 0 ? 1 : -1;
 
         // Flag days where the overlay moves backward relative to expected
@@ -906,7 +906,13 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
         const lastDataMid = (((days[localDataDays]!.nightStartHour + days[localDataDays]!.nightEndHour) / 2) % 24 + 24) % 24;
         const edgeSlopeConf = Math.min(1, edgeResult.pointsUsed / (medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10)) *
                               (1 - Math.min(1, edgeResult.residualMAD / 4));
-        const edgeSlope = edgeSlopeConf * edgeResult.slope + (1 - edgeSlopeConf) * globalFit.slope;
+        // Use regional fit centered on last data day for fallback (not global, which may encode
+        // a different regime like DSPD). Fall back to global only if regional is implausible.
+        const forecastRegionalFit = evaluateWindow(anchors, segFirstDay + localDataDays, REGULARIZATION_HALF);
+        const useForecastRegional = forecastRegionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
+                                    forecastRegionalFit.slope >= -0.5 && forecastRegionalFit.slope <= 2.0;
+        const forecastFallbackSlope = useForecastRegional ? forecastRegionalFit.slope : globalFit.slope;
+        const edgeSlope = edgeSlopeConf * edgeResult.slope + (1 - edgeSlopeConf) * forecastFallbackSlope;
         for (let localD = localDataDays + 1; localD <= localTotalDays; localD++) {
             const dist = localD - localDataDays;
             const forecastMid = ((lastDataMid + edgeSlope * dist) % 24 + 24) % 24;

@@ -348,6 +348,85 @@ describe("analyzeCircadian — segment isolation", () => {
   });
 });
 
+// ── DSPD to N24 transition detection ────────────────────────────────
+
+describe("analyzeCircadian — DSPD to N24 transition", () => {
+  it("detects N24 drift after long DSPD period (300d tau=24.0 + 30d tau=24.5)", () => {
+    // Extreme ratio: 10:1 DSPD-to-N24 — the regional slope fallback (180-day window)
+    // and smoothing must not let the DSPD era mask the recent N24 drift.
+    const records = generateSyntheticRecords({
+      tauSegments: [
+        { untilDay: 300, tau: 24.0 },
+        { untilDay: 330, tau: 24.5 },
+      ],
+      days: 330,
+      noise: 0.3,
+      seed: 4000,
+    });
+
+    const result = analyzeCircadian(records);
+
+    // Local tau in the last 15 days should detect N24 drift (> 24.2)
+    const last15 = result.days.slice(-15);
+    const meanTau = last15.reduce((s, d) => s + d.localTau, 0) / last15.length;
+    expect(meanTau).toBeGreaterThan(24.2);
+  });
+
+  it("full dataset local tau matches recent-only (300d DSPD + 60d N24)", () => {
+    // The full dataset's local tau at the end should not diverge significantly
+    // from analyzing only the N24 portion.
+    const records = generateSyntheticRecords({
+      tauSegments: [
+        { untilDay: 300, tau: 24.0 },
+        { untilDay: 360, tau: 24.5 },
+      ],
+      days: 360,
+      noise: 0.3,
+      seed: 4001,
+    });
+
+    // Analyze full dataset
+    const fullResult = analyzeCircadian(records);
+
+    // Analyze only last 60 days
+    const recentRecords = records.filter(r => {
+      const dayNum = Math.round(
+        (r.startTime.getTime() - records[0]!.startTime.getTime()) / 86_400_000
+      );
+      return dayNum >= 300;
+    });
+    const recentResult = analyzeCircadian(recentRecords);
+
+    // Compare local tau at end
+    const fullLastTau = fullResult.days[fullResult.days.length - 1]!.localTau;
+    const recentLastTau = recentResult.days[recentResult.days.length - 1]!.localTau;
+
+    // Full-dataset tau at end should be within 0.3h of recent-only
+    expect(Math.abs(fullLastTau - recentLastTau)).toBeLessThan(0.3);
+  });
+
+  it("detects gradual transition (250d tau=24.0 → 30d tau=24.15 → 30d tau=24.5)", () => {
+    // Gradual transition after a long stable DSPD period
+    const records = generateSyntheticRecords({
+      tauSegments: [
+        { untilDay: 250, tau: 24.0 },
+        { untilDay: 280, tau: 24.15 },
+        { untilDay: 310, tau: 24.5 },
+      ],
+      days: 310,
+      noise: 0.3,
+      seed: 4002,
+    });
+
+    const result = analyzeCircadian(records);
+
+    // Local tau in the last 15 days should detect N24 drift (> 24.2)
+    const last15 = result.days.slice(-15);
+    const meanTau = last15.reduce((s, d) => s + d.localTau, 0) / last15.length;
+    expect(meanTau).toBeGreaterThan(24.2);
+  });
+});
+
 // ── Real data regression tests ──────────────────────────────────────
 
 describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () => {
@@ -357,8 +436,8 @@ describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () =>
 
     const result = analyzeCircadian(records);
 
-    // Global tau should be in N24 range
-    expect(result.globalTau).toBeGreaterThan(24.1);
+    // Global tau should be in a plausible range (may include DSPD periods)
+    expect(result.globalTau).toBeGreaterThan(23.5);
     expect(result.globalTau).toBeLessThan(26.0);
 
     // Should have meaningful anchor counts

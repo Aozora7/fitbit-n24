@@ -279,7 +279,7 @@ For each calendar day, a sliding window is evaluated:
 2. Apply Gaussian weights (sigma = **14 days**) multiplied by each anchor's tier weight
 3. Fit **robust weighted regression** using IRLS (iteratively reweighted least squares) with Tukey bisquare M-estimation (tuning constant = 4.685, up to 5 iterations). This downweights outliers that survived Step 4.
 4. Extract local tau = `24 + slope`, along with quality metrics (anchor count, mean quality, residual MAD, average A-tier sleep duration)
-5. **Slope regularization**: The local slope is blended toward a **regional** fit slope (±90-day window) based on window strength. `slopeConf = min(1, pointsUsed/expected) × (1 - min(1, residualMAD/4))`. The reported `localTau` uses `regularizedSlope = slopeConf × localSlope + (1 - slopeConf) × regionalSlope`. Using a regional rather than global fallback prevents distant historical data (with potentially different tau) from pulling local estimates. If the regional slope is implausible (outside -0.5 to +2.0 h/day, e.g. due to unwrapping gaps), the global fit slope is used instead. The predicted midpoint uses centroid-anchored extrapolation: the regression's prediction at the weighted mean x of its anchors, then extrapolated to the target day at the regularized slope. For symmetric windows this closely matches the raw regression; for asymmetric windows (fragmented periods) this constrains the overlay to advance at the regularized rate.
+5. **Slope regularization**: The local slope is blended toward a **regional** fit slope (±60-day window) based on window strength. `slopeConf = min(1, pointsUsed/expected) × (1 - min(1, residualMAD/4))`. The reported `localTau` uses `regularizedSlope = slopeConf × localSlope + (1 - slopeConf) × regionalSlope`. Using a regional rather than global fallback prevents distant historical data (with potentially different tau) from pulling local estimates. The 120-day regional window (reduced from 180 days) improves responsiveness to regime changes such as DSPD-to-N24 transitions. If the regional slope is implausible (outside -0.5 to +2.0 h/day, e.g. due to unwrapping gaps), the global fit slope is used instead. The predicted midpoint uses centroid-anchored extrapolation: the regression's prediction at the weighted mean x of its anchors, then extrapolated to the target day at the regularized slope. For symmetric windows this closely matches the raw regression; for asymmetric windows (fragmented periods) this constrains the overlay to advance at the regularized rate.
 6. Compute a composite confidence score: `0.4 * density + 0.3 * quality + 0.3 * (1 - residualSpread)`
 
 If fewer than **6 anchors** fall in the window, it expands progressively: first to ±32 days, then to ±60 days (120-day window).
@@ -308,7 +308,7 @@ After all per-day predictions are computed, a two-pass post-hoc smoothing correc
 
 **Pass 3 — Forward-bridge backward-moving segments** (for sleep disruptions):
 1. Compute normalized overlay midpoints and circular day-to-day deltas.
-2. Flag days where the daily shift deviates **0.5h+** backward from the expected global drift direction.
+2. Flag days where the daily shift deviates **0.5h+** backward from the expected drift direction (using the edge fit slope, not the global slope, to correctly handle regime transitions).
 3. Find contiguous runs of **3+ backward days**.
 4. For qualifying runs, replace overlay with forward circular interpolation between the entry point (last non-backward day before the run) and exit point (first non-backward day after). Sanity check: skip if the interpolation rate exceeds 3h/day.
 5. This ensures the overlay always advances in the circadian drift direction through disrupted sleep periods, where off-rhythm anchors would otherwise pull the regression backward.
@@ -323,7 +323,7 @@ Segments with fewer than 2 anchor candidates are skipped (too few records for me
 
 ### Forecast extrapolation
 
-When forecast days are requested, the regression from the last data day (the "edge fit") is frozen and extrapolated forward. Forecast confidence decays exponentially: `edgeBaseConfidence * exp(-0.1 * daysFromEdge)`, reaching ~50% at 7 days and ~5% at 30 days. The forecast overlay is drawn in amber (`rgba(251, 191, 36, alpha)`) to distinguish it from the purple historical overlay.
+When forecast days are requested, the regression from the last data day (the "edge fit") is frozen and extrapolated forward. The forecast slope is regularized using a regional fit centered on the last data day (±60-day window) as fallback, rather than the global fit, to avoid regime-change bias (e.g., a long DSPD period pulling the forecast slope toward zero). Forecast confidence decays exponentially: `edgeBaseConfidence * exp(-0.1 * daysFromEdge)`, reaching ~50% at 7 days and ~5% at 30 days. The forecast overlay is drawn in amber (`rgba(251, 191, 36, alpha)`) to distinguish it from the purple historical overlay.
 
 ### Output
 
