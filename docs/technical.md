@@ -220,7 +220,7 @@ When the row width is set to a custom period (e.g. 24.5h), rows are built by `bu
 
 ## Circadian period estimation
 
-`analyzeCircadian()` in `models/circadian.ts` estimates the free-running circadian period using a multi-stage pipeline.
+`analyzeCircadian()` in `models/circadian/index.ts` estimates the free-running circadian period using a multi-stage pipeline. The algorithm is split across focused modules: `types.ts` (interfaces/constants), `regression.ts` (weighted regression, Gaussian kernel, sliding window), `unwrap.ts` (seed-based phase unwrapping), `anchors.ts` (anchor classification, segment splitting), `smoothing.ts` (3-pass overlay smoothing), `analyzeSegment.ts` (per-segment pipeline), and `mergeSegments.ts` (segment merging).
 
 ### Step 1: Quality scoring
 
@@ -335,6 +335,53 @@ When forecast days are requested, the regression from the last data day (the "ed
 - `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `localDrift`, `confidenceScore`, `confidence` (tier: "high"/"medium"/"low"), `anchorSleep?`, `isForecast`, `isGap`
 - Legacy compat fields: `tau`, `dailyDrift`, `rSquared`
 
+## Circadian algorithm parameters
+
+All locations below are relative to `src/models/circadian/`.
+
+| Constant                        | Value                                                                                                                     | Location                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Segment gap threshold           | >14 days between records triggers segment split                                                                           | `types.ts`                |
+| Anchor tier A threshold         | ≥7h duration, ≥0.75 quality                                                                                               | `anchors.ts`              |
+| Anchor tier B threshold         | ≥5h duration, ≥0.60 quality                                                                                               | `anchors.ts`              |
+| Anchor tier C threshold         | ≥4h duration, ≥0.40 quality                                                                                               | `anchors.ts`              |
+| Nap weight multiplier           | 0.15 (applied to `!isMainSleep`)                                                                                          | `anchors.ts`              |
+| Tier C inclusion trigger        | Max A+B gap > 14 days                                                                                                     | `analyzeSegment.ts`       |
+| Sliding window half-width       | 21 days (42-day window)                                                                                                   | `types.ts`                |
+| Max window half-width           | 60 days (120-day window)                                                                                                  | `types.ts`                |
+| Min anchors per window          | 6                                                                                                                         | `types.ts`                |
+| Gaussian sigma                  | 14 days                                                                                                                   | `types.ts`                |
+| Outlier threshold               | 8 hours                                                                                                                   | `types.ts`                |
+| Seed search half-width          | 21 days                                                                                                                   | `types.ts`                |
+| Min seed anchors                | 4                                                                                                                         | `types.ts`                |
+| Expansion lookback              | 30 days                                                                                                                   | `types.ts`                |
+| Regularization half-width       | 60 days (regional slope fallback window)                                                                                  | `types.ts`                |
+| Snap branch conflict            | Prefer pairwise when nearest ≤7 days and diff <6h                                                                         | `unwrap.ts`               |
+| Robust regression               | IRLS + Tukey bisquare, k=4.685, 5 iterations                                                                              | `regression.ts`           |
+| Slope regularization            | slopeConf = density × (1 - residualMAD/4); blend toward regional fit (falls back to global if regional slope implausible) | `analyzeSegment.ts`       |
+| Centroid extrapolation          | predictedMid = centroidPred + regularizedSlope × (d - weightedMeanX)                                                     | `analyzeSegment.ts`       |
+| Forecast confidence decay       | exp(-0.1 \* daysFromEdge)                                                                                                 | `analyzeSegment.ts`       |
+| Smoothing half-width            | 7 days (±7 day neighborhood)                                                                                              | `types.ts`                |
+| Smoothing sigma                 | 3 days (Gaussian kernel for smoothing weights)                                                                            | `types.ts`                |
+| Smoothing jump threshold        | 2h (only smooth days with >2h jump to neighbor)                                                                           | `types.ts`                |
+| Anchor smooth density threshold | 0.4 (anchor-smooth days with density below this)                                                                          | `smoothing.ts`            |
+| Anchor smooth min weight        | 0.5 (require meaningful anchor coverage)                                                                                  | `smoothing.ts`            |
+| Smoothing margin                | 5 days (fade transition at smoothed region boundaries)                                                                    | `smoothing.ts`            |
+| Regime change MAD gate          | residual MAD < 2.0h (only boost confidence for clean fits)                                                                | `analyzeSegment.ts`       |
+| Slope clamp                     | regularizedSlope >= 0 (tau >= 24.0h, circadian clock doesn't run backward)                                                | `analyzeSegment.ts`       |
+| Backward bridge deviation       | 0.5h (flag if daily shift deviates 0.5h+ backward from expected)                                                         | `smoothing.ts`            |
+| Backward bridge min run         | 3 days (min consecutive backward days to trigger bridging)                                                                | `smoothing.ts`            |
+| Backward bridge max rate        | 3h/day (max interpolation rate sanity check)                                                                              | `smoothing.ts`            |
+
+## Sleep score regression weights
+
+| Weight             | Value    | Location                   |
+| ------------------ | -------- | -------------------------- |
+| Intercept          | 66.607   | `calculateSleepScore.ts:5` |
+| Duration score     | 9.071    | `calculateSleepScore.ts:6` |
+| Deep + REM minutes | 0.111    | `calculateSleepScore.ts:7` |
+| Wake percentage    | -102.527 | `calculateSleepScore.ts:8` |
+
 ## Phase coherence periodogram
 
 `computeLombScargle()` in `models/lombScargle.ts` computes a windowed phase coherence periodogram using the weighted Rayleigh test. Despite the filename (a historical artifact), this is not a Lomb-Scargle spectral method.
@@ -373,6 +420,16 @@ npx tsx cli/analyze.ts <sleep-data.json>
 The CLI reads a JSON file with `fs.readFileSync`, parses it with `parseSleepData()` (the same pure function the browser app uses), and runs `analyzeCircadian()` to print summary statistics. It serves as a debugging harness — copy and modify it to import additional model functions, log intermediate values, or test algorithm changes without launching the browser.
 
 A separate `tsconfig.cli.json` provides Node.js-compatible settings (`module: "NodeNext"`, `moduleResolution: "NodeNext"`) for type-checking CLI code. The main `tsconfig.json` and `npm run build` remain unchanged (browser-only).
+
+## Test coverage
+
+| Test file                        | Purpose                                                                                |
+| -------------------------------- | -------------------------------------------------------------------------------------- |
+| `circadian.integration.test.ts`  | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions        |
+| `circadian.scoring.test.ts`      | Accuracy metrics: phase error, noise/gap degradation, confidence calibration           |
+| `circadian.regimechange.test.ts` | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation |
+| `circadian.internals.test.ts`    | Unit tests for internal helper functions                                               |
+| `lombScargle.test.ts`            | Periodogram computation tests                                                          |
 
 ## Tailwind CSS v4
 

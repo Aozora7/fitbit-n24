@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "analyze": "tsx cli/analyze.ts",
+    "analyze-period": "tsx cli/analyze_period.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

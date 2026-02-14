@@ -3,6 +3,7 @@
 ```
 cli/
   analyze.ts                        CLI entry point: read JSON file, run circadian analysis, print stats
+  analyze_period.ts                 Diagnostic script for analyzing a specific date range in a JSON file
 
 src/
   main.tsx                          Entry point, provider hierarchy (AuthProvider -> AppProvider -> App)
@@ -30,7 +31,15 @@ src/
 
   models/
     actogramData.ts                 Actogram row building (buildActogramRows, buildTauRows)
-    circadian.ts                    Circadian period estimation (segment isolation at data gaps, anchor classification, sliding-window robust regression)
+    circadian/
+      index.ts                     analyzeCircadian() orchestrator + public type re-exports + _internals barrel
+      types.ts                     All interfaces (CircadianDay, AnchorPoint, etc.), type aliases, constants
+      regression.ts                Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window evaluation
+      unwrap.ts                    Seed-based phase unwrapping with regression/pairwise branch resolution
+      anchors.ts                   Anchor classification, midpoint computation, segment splitting, median spacing
+      smoothing.ts                 3-pass post-hoc overlay smoothing (anchor-based, jump-based, forward-bridge) + forecast re-anchoring
+      analyzeSegment.ts            Per-segment analysis pipeline (anchor building, unwrap, outlier rejection, sliding window, smoothing)
+      mergeSegments.ts             Merge independently-analyzed segments into single CircadianAnalysis result
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)
     lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test)
     __tests__/

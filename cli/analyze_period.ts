@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parseSleepData } from "../src/data/loadLocalData.js";
-import { analyzeCircadian, _internals } from "../src/models/circadian.js";
+import { analyzeCircadian, _internals } from "../src/models/circadian/index.js";
 import type { SleepRecord } from "../src/api/types.js";
 
 const { classifyAnchor, sleepMidpointHour, evaluateWindow, gaussian } = _internals;
