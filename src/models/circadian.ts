@@ -612,13 +612,36 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
         }
 
         const expectedPts = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
-        const slopeConf = Math.min(1, result.pointsUsed / expectedPts) *
-                          (1 - Math.min(1, result.residualMAD / 4));
+        let slopeConf = Math.min(1, result.pointsUsed / expectedPts) *
+                        (1 - Math.min(1, result.residualMAD / 4));
+
+        // Regime change detection: when local slope differs significantly from
+        // regional slope, trust the local window more to prevent blending across
+        // regime boundaries (e.g., short entrained periods surrounded by N24).
         const regionalFit = evaluateWindow(anchors, globalD, REGULARIZATION_HALF);
         const useRegional = regionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
                             regionalFit.slope >= -0.5 && regionalFit.slope <= 2.0;
         const fallbackSlope = useRegional ? regionalFit.slope : globalFit.slope;
-        const regularizedSlope = slopeConf * result.slope + (1 - slopeConf) * fallbackSlope;
+
+        // Detect potential regime change: if local and regional slopes differ by > 0.3h/day
+        // and local window has sufficient anchors, increase confidence in local slope
+        const slopeDiff = Math.abs(result.slope - fallbackSlope);
+        const REGIME_CHANGE_THRESHOLD = 0.3; // 0.3h/day ≈ τ difference of 0.3h
+        if (slopeDiff > REGIME_CHANGE_THRESHOLD && result.pointsUsed >= MIN_ANCHORS_PER_WINDOW) {
+            // Boost local confidence to prevent blending across regime boundaries
+            // Scale boost by how different the slopes are (more different = more boost)
+            const boost = Math.min(0.4, (slopeDiff - REGIME_CHANGE_THRESHOLD) * 0.5);
+            slopeConf = Math.min(1, slopeConf + boost);
+        }
+
+        let regularizedSlope = slopeConf * result.slope + (1 - slopeConf) * fallbackSlope;
+
+        // Safety cap: extreme slopes (>2.0 h/day = tau > 26h) are almost always
+        // estimation errors during fragmentation. Fall back to regional slope.
+        if (regularizedSlope > 2.0 || regularizedSlope < -0.5) {
+            regularizedSlope = fallbackSlope;
+        }
+
         const localTau = 24 + regularizedSlope;
 
         const centroidPred = result.slope * result.weightedMeanX + result.intercept;
@@ -831,7 +854,7 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
     }
 
     // Pass 3: Forward-bridge backward-moving overlay segments
-    // When disrupted sleep pulls the overlay backward (against the global
+    // When disrupted sleep pulls the overlay backward (against the local
     // drift direction) for several consecutive days, replace with forward
     // circular interpolation between entry and exit points. The circadian
     // clock doesn't run backward, so backward overlay movement indicates
@@ -840,22 +863,45 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
         const BACKWARD_DEVIATION = 0.5; // flag if daily shift deviates 0.5h+ backward from expected
         const BACKWARD_MIN_RUN = 3; // min consecutive backward days to trigger bridging
         const MAX_BRIDGE_RATE = 3; // max h/day interpolation rate (sanity check)
+        const MIN_CONFIDENCE = 0.3; // only bridge days with sufficient confidence in their local drift
 
         const normMids: number[] = days.map(d =>
             (((d.nightStartHour + d.nightEndHour) / 2) % 24 + 24) % 24
         );
 
-        const expectedDelta = edgeResult.slope;
-        const driftSign = expectedDelta >= 0 ? 1 : -1;
+        // Use local drift estimates for context-aware bridging.
+        // This prevents false bridging when short entrained segments (tau=24.0)
+        // are surrounded by longer N24 segments (tau>24.0).
+        const getExpectedDelta = (i: number): number => {
+            if (i <= 0 || i >= days.length) return 0;
+            // Average the local drift of consecutive days for smoother transitions
+            return (days[i - 1]!.localDrift + days[i]!.localDrift) / 2;
+        };
 
-        // Flag days where the overlay moves backward relative to expected
+        // Flag days where the overlay moves backward relative to LOCAL expected drift
         const isBackward: boolean[] = new Array(days.length).fill(false);
         for (let i = 1; i < days.length; i++) {
             if (days[i]!.isForecast || days[i - 1]!.isForecast) continue;
+
+            // Skip bridging for low-confidence days (prevents false bridging
+            // in segments with insufficient anchor coverage)
+            const minConf = Math.min(days[i - 1]!.confidenceScore, days[i]!.confidenceScore);
+            if (minConf < MIN_CONFIDENCE) continue;
+
             let delta = normMids[i]! - normMids[i - 1]!;
             if (delta > 12) delta -= 24;
             if (delta < -12) delta += 24;
-            if ((delta - expectedDelta) * driftSign < -BACKWARD_DEVIATION) {
+
+            const expectedDelta = getExpectedDelta(i);
+            // A day is "backward" if it's moving opposite to expected direction
+            // For positive drift (N24): backward means delta < expected - threshold
+            // For negative drift (rare): backward means delta > expected + threshold
+            // For zero drift (entrained): backward means |delta| > threshold in either direction
+            const isBackwardMove = expectedDelta >= 0
+                ? delta < expectedDelta - BACKWARD_DEVIATION
+                : delta > expectedDelta + BACKWARD_DEVIATION;
+
+            if (isBackwardMove) {
                 isBackward[i] = true;
             }
         }
@@ -873,6 +919,15 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
                         const entryMid = normMids[entryIdx]!;
                         const exitMid = normMids[exitIdx]!;
                         const span = exitIdx - entryIdx;
+
+                        // Determine interpolation direction from local context
+                        // Use average local drift of the run to determine forward direction
+                        let avgDrift = 0;
+                        for (let j = entryIdx; j <= exitIdx && j < days.length; j++) {
+                            avgDrift += days[j]!.localDrift;
+                        }
+                        avgDrift /= (Math.min(exitIdx + 1, days.length) - entryIdx);
+                        const driftSign = avgDrift >= 0 ? 1 : -1;
 
                         // Forward distance: always in drift direction
                         let forwardDist: number;
