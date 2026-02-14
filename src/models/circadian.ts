@@ -627,7 +627,7 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
         // and local window has sufficient anchors, increase confidence in local slope
         const slopeDiff = Math.abs(result.slope - fallbackSlope);
         const REGIME_CHANGE_THRESHOLD = 0.3; // 0.3h/day ≈ τ difference of 0.3h
-        if (slopeDiff > REGIME_CHANGE_THRESHOLD && result.pointsUsed >= MIN_ANCHORS_PER_WINDOW) {
+        if (slopeDiff > REGIME_CHANGE_THRESHOLD && result.pointsUsed >= MIN_ANCHORS_PER_WINDOW && result.residualMAD < 2.0) {
             // Boost local confidence to prevent blending across regime boundaries
             // Scale boost by how different the slopes are (more different = more boost)
             const boost = Math.min(0.4, (slopeDiff - REGIME_CHANGE_THRESHOLD) * 0.5);
@@ -641,6 +641,11 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
         if (regularizedSlope > 2.0 || regularizedSlope < -0.5) {
             regularizedSlope = fallbackSlope;
         }
+
+        // Clamp to non-negative: the circadian clock doesn't run backward (tau < 24h).
+        // Slightly negative regularized slopes arise from noisy fragmented data pulling
+        // the local regression negative even after regularization toward regional slope.
+        regularizedSlope = Math.max(0, regularizedSlope);
 
         const localTau = 24 + regularizedSlope;
 
@@ -892,14 +897,12 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
             if (delta > 12) delta -= 24;
             if (delta < -12) delta += 24;
 
-            const expectedDelta = getExpectedDelta(i);
-            // A day is "backward" if it's moving opposite to expected direction
-            // For positive drift (N24): backward means delta < expected - threshold
-            // For negative drift (rare): backward means delta > expected + threshold
-            // For zero drift (entrained): backward means |delta| > threshold in either direction
-            const isBackwardMove = expectedDelta >= 0
-                ? delta < expectedDelta - BACKWARD_DEVIATION
-                : delta > expectedDelta + BACKWARD_DEVIATION;
+            // Clamp expected delta to >= 0: the circadian clock doesn't run backward,
+            // so negative local drift is always estimation noise from fragmented sleep.
+            // Without clamping, negative localDrift causes the bridging to "expect"
+            // backward movement, preventing detection of genuine overlay reversal.
+            const expectedDelta = Math.max(0, getExpectedDelta(i));
+            const isBackwardMove = delta < expectedDelta - BACKWARD_DEVIATION;
 
             if (isBackwardMove) {
                 isBackward[i] = true;
@@ -920,22 +923,10 @@ function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDa
                         const exitMid = normMids[exitIdx]!;
                         const span = exitIdx - entryIdx;
 
-                        // Determine interpolation direction from local context
-                        // Use average local drift of the run to determine forward direction
-                        let avgDrift = 0;
-                        for (let j = entryIdx; j <= exitIdx && j < days.length; j++) {
-                            avgDrift += days[j]!.localDrift;
-                        }
-                        avgDrift /= (Math.min(exitIdx + 1, days.length) - entryIdx);
-                        const driftSign = avgDrift >= 0 ? 1 : -1;
-
-                        // Forward distance: always in drift direction
-                        let forwardDist: number;
-                        if (driftSign > 0) {
-                            forwardDist = ((exitMid - entryMid) % 24 + 24) % 24;
-                        } else {
-                            forwardDist = -(((entryMid - exitMid) % 24 + 24) % 24);
-                        }
+                        // Always interpolate forward (positive direction).
+                        // The circadian clock doesn't run backward, so backward
+                        // bridge direction from negative localDrift is always noise.
+                        const forwardDist = ((exitMid - entryMid) % 24 + 24) % 24;
 
                         // Sanity: skip if interpolation rate is implausible
                         if (Math.abs(forwardDist) / span <= MAX_BRIDGE_RATE && forwardDist !== 0) {

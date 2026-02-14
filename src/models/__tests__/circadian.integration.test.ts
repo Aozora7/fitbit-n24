@@ -496,6 +496,28 @@ describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () =>
     expect(daysWithAnchors.every(d => !d.isGap)).toBe(true);
   });
 
+  it("Sept 2022 fragmented sleep does not reverse overlay direction", () => {
+    const records = loadRealData();
+    const result = analyzeCircadian(records);
+
+    // Extract days for 2022-09-14 through 2022-09-22
+    const septDays = result.days.filter(d =>
+      d.date >= "2022-09-14" && d.date <= "2022-09-22"
+    );
+
+    expect(septDays.length).toBeGreaterThan(0);
+
+    // Overlay should not reverse backward — total backward shift must be < 4h
+    const mids = septDays.map(d => d.nightStartHour + (d.nightEndHour - d.nightStartHour) / 2);
+    const totalShift = mids[mids.length - 1]! - mids[0]!;
+    expect(totalShift).toBeGreaterThan(-4); // no large backward reversal
+
+    // Local tau should be >= 24.0 during active N24 free-running
+    for (const day of septDays) {
+      expect(day.localTau).toBeGreaterThanOrEqual(24.0);
+    }
+  });
+
   it("forecast extends smoothly from data", () => {
     const records = loadRealData();
     const result = analyzeCircadian(records, 14);
