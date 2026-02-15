@@ -176,8 +176,8 @@ export function useActogramRenderer(
                         };
                     }
                 } else {
-                    let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
-                    let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
+                    const nightStart = ((cd.nightStartHour % 24) + 24) % 24;
+                    const nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
                     const h = ((hour % 24) + 24) % 24;
                     const inOverlay =
                         nightEnd < nightStart ? h >= nightStart || h <= nightEnd : h >= nightStart && h <= nightEnd;

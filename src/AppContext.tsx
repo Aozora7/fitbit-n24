@@ -43,7 +43,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [overlayEditMode, setOverlayEditMode] = usePersistedState("viz.overlayEditMode", false);
     const [overlayControlPoints, setOverlayControlPoints] = usePersistedState<OverlayControlPoint[]>(
         "viz.overlayControlPoints",
-        [],
+        []
     );
     const [overlaySleepWindow, setOverlaySleepWindow] = usePersistedState("viz.overlaySleepWindow", 8);
 
@@ -145,11 +145,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
     const manualOverlayDays = useMemo(() => {
-        if (overlayControlPoints.length === 0 || circadianAnalysis.days.length === 0) return [];
+        if (!overlayEditMode || overlayControlPoints.length === 0 || circadianAnalysis.days.length === 0) return [];
         const firstDate = circadianAnalysis.days[0]!.date;
         const lastDate = circadianAnalysis.days[circadianAnalysis.days.length - 1]!.date;
         return interpolateOverlay(overlayControlPoints, overlaySleepWindow, firstDate, lastDate);
-    }, [overlayControlPoints, overlaySleepWindow, circadianAnalysis.days]);
+    }, [overlayEditMode, overlayControlPoints, overlaySleepWindow, circadianAnalysis.days]);
 
     const daySpan = useMemo(() => {
         if (filteredRecords.length === 0) return 0;

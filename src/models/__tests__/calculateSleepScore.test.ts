@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { calculateSleepScore } from "../calculateSleepScore";
-import type { RawSleepRecordV12 } from "../../api/types";
+import type { RawSleepRecordV12, SleepStageSummary } from "../../api/types";
 
 function makeRawRecord(overrides: Partial<RawSleepRecordV12> = {}): RawSleepRecordV12 {
     return {
@@ -112,7 +112,7 @@ describe("calculateSleepScore", () => {
                 levels: {
                     data: [],
                     shortData: [],
-                    summary: {} as any,
+                    summary: {} as SleepStageSummary,
                 },
             })
         );
@@ -128,7 +128,7 @@ describe("calculateSleepScore", () => {
                 levels: {
                     data: [],
                     shortData: [],
-                    summary: {} as any,
+                    summary: {} as SleepStageSummary,
                 },
             })
         );

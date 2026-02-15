@@ -1,7 +1,7 @@
 import type { RawSleepRecordV12 } from "../api/types";
 
 interface CachedSleepRecord extends RawSleepRecordV12 {
-    _userId: string;
+    _userId?: string;
 }
 
 const DB_NAME = "fitbit-n24-cache";
@@ -55,7 +55,8 @@ export async function getCachedRecords(userId: string): Promise<RawSleepRecordV1
             request.onsuccess = () => {
                 const cursor = request.result;
                 if (cursor) {
-                    const { _userId: _, ...record } = cursor.value as CachedSleepRecord;
+                    const record = { ...cursor.value } as CachedSleepRecord;
+                    delete record._userId;
                     results.push(record);
                     cursor.continue();
                 } else {

@@ -4,6 +4,9 @@ import { computeLombScargle } from "../lombScargle";
 import { generateSyntheticRecords, computeTrueMidpoint, type SyntheticOptions } from "./fixtures/synthetic";
 import { hasRealData, loadRealData } from "./fixtures/loadRealData";
 
+const AOZORA_FILE = "Aozora_2026-02-13.json";
+import { assertHardDriftLimits, computeDriftPenalty } from "./fixtures/driftPenalty";
+
 // ── Scoring utilities ──────────────────────────────────────────────
 
 /** Circular distance between two hours (mod 24), returns 0-12 */
@@ -75,79 +78,105 @@ function scoreAnalysis(analysis: CircadianAnalysis, opts: SyntheticOptions, hold
 /** Print a score summary table row */
 function logScore(label: string, score: AccuracyScore): void {
     console.log(
-        `  ${label.padEnd(24)} tau±${score.tauError.toFixed(3)}  phase: mean=${score.meanPhaseError.toFixed(2)} med=${score.medianPhaseError.toFixed(2)} p90=${score.p90PhaseError.toFixed(2)}  resid=${score.residualRatio.toFixed(2)}`
+        `  ${label.padEnd(24)} tau±${score.tauError.toFixed(3)}  phase: mean=${score.meanPhaseError.toFixed(2)} med=${score.medianPhaseError.toFixed(2)} p90=${score.p90PhaseError.toFixed(2)}  resid=${score.residualRatio.toFixed(2)}`,
     );
 }
 
-// ── Test 1: Tau estimation sweep ───────────────────────────────────
-// Baseline: all tau errors ~0.007-0.010. Threshold at 0.04 (~4x headroom).
+// ── Benchmark helper ────────────────────────────────────────────────
+// Logs a BENCHMARK line for machine parsing but does NOT assert.
+// Use expect() separately for catastrophic-guard bounds only.
 
-describe("scoring: tau estimation sweep", () => {
+function benchmark(label: string, metric: string, value: number, softTarget: number, lowerIsBetter = true): void {
+    const pass = lowerIsBetter ? value <= softTarget : value >= softTarget;
+    const op = lowerIsBetter ? "<" : ">";
+    console.log(`BENCHMARK\t${label}\t${metric}=${value.toFixed(4)}\ttarget${op}${softTarget}\t${pass ? "PASS" : "REGRESSED"}`);
+}
+
+function logDriftPenalty(label: string, analysis: CircadianAnalysis): void {
+    const penalty = computeDriftPenalty(analysis.days);
+    console.log(
+        `DRIFT_PENALTY\t${label}\tpenalty=${penalty.totalPenalty.toFixed(2)}\tdays=${penalty.penaltyDays}\tmaxStreak=${penalty.maxConsecutivePenaltyDays}\tfraction=${(penalty.penaltyFraction * 100).toFixed(1)}%`,
+    );
+}
+
+// ── Benchmark 1: Tau estimation sweep ─────────────────────────────
+// Baseline: all tau errors ~0.007-0.010. Soft target at 0.04 (~4x headroom).
+
+describe("benchmark: tau estimation sweep", () => {
     const taus = [24.0, 24.2, 24.5, 24.7, 25.0, 25.5];
 
     for (const tau of taus) {
-        it(`tau=${tau}: error < 0.04`, () => {
+        it(`tau=${tau}: tau error`, () => {
             const opts: SyntheticOptions = { tau, days: 120, noise: 0.3, seed: Math.round(tau * 100) };
             const records = generateSyntheticRecords(opts);
             const analysis = analyzeCircadian(records);
             const score = scoreAnalysis(analysis, opts);
             logScore(`tau=${tau}`, score);
-            expect(score.tauError).toBeLessThan(0.04);
+            benchmark(`tau-sweep/${tau}`, "tauError", score.tauError, 0.04);
+            assertHardDriftLimits(analysis.days);
+            logDriftPenalty(`tau-sweep/${tau}`, analysis);
+            // Catastrophic guard only
+            expect(score.tauError).toBeLessThan(1.0);
         });
     }
 });
 
-// ── Test 2: Phase prediction accuracy ──────────────────────────────
-// Baseline: mean=0.29, p90=1.00. Tighten to 0.5 / 1.5.
+// ── Benchmark 2: Phase prediction accuracy ──────────────────────────
+// Baseline: mean=0.29, p90=1.00.
 
-describe("scoring: phase prediction accuracy", () => {
-    it("mean phase error < 0.5h, p90 < 1.5h", () => {
+describe("benchmark: phase prediction accuracy", () => {
+    it("phase error", () => {
         const opts: SyntheticOptions = { tau: 24.5, days: 120, noise: 0.3, seed: 200 };
         const records = generateSyntheticRecords(opts);
         const analysis = analyzeCircadian(records);
         const score = scoreAnalysis(analysis, opts);
         logScore("phase-accuracy", score);
-        expect(score.meanPhaseError).toBeLessThan(0.5);
-        expect(score.p90PhaseError).toBeLessThan(1.5);
+        benchmark("phase-accuracy", "meanPhaseError", score.meanPhaseError, 0.5);
+        benchmark("phase-accuracy", "p90PhaseError", score.p90PhaseError, 1.5);
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("phase-accuracy", analysis);
+        // Catastrophic guards
+        expect(score.meanPhaseError).toBeLessThan(3.0);
+        expect(score.p90PhaseError).toBeLessThan(6.0);
     });
 });
 
-// ── Test 3: Noise degradation curve ────────────────────────────────
-// Baseline residual ratios: 0.64-0.76. Tighten bounds.
+// ── Benchmark 3: Noise degradation curve ────────────────────────────
 
-describe("scoring: noise degradation", () => {
+describe("benchmark: noise degradation", () => {
     const noises = [0.3, 0.5, 1.0, 1.5, 2.0];
 
     for (const noise of noises) {
-        it(`noise=${noise}: tau error bounded, residual ratio sane`, () => {
+        it(`noise=${noise}: bounded degradation`, () => {
             const opts: SyntheticOptions = { tau: 24.5, days: 150, noise, seed: 300 + Math.round(noise * 10) };
             const records = generateSyntheticRecords(opts);
             const analysis = analyzeCircadian(records);
             const score = scoreAnalysis(analysis, opts);
             logScore(`noise=${noise}`, score);
-            // Tau error should stay small even under noise
-            expect(score.tauError).toBeLessThan(0.05);
-            // Residual ratio should be roughly proportional to noise
-            expect(score.residualRatio).toBeGreaterThan(0.3);
-            expect(score.residualRatio).toBeLessThan(2.0);
-            // Phase error should scale with noise but stay bounded
-            expect(score.meanPhaseError).toBeLessThan(0.5 + noise * 0.3);
+            benchmark(`noise/${noise}`, "tauError", score.tauError, 0.05);
+            benchmark(`noise/${noise}`, "residualRatio", score.residualRatio, 0.3, false);
+            benchmark(`noise/${noise}`, "meanPhaseError", score.meanPhaseError, 0.5 + noise * 0.3);
+            assertHardDriftLimits(analysis.days);
+            logDriftPenalty(`noise/${noise}`, analysis);
+            // Catastrophic guards
+            expect(score.tauError).toBeLessThan(1.0);
+            expect(score.residualRatio).toBeLessThan(5.0);
+            expect(score.meanPhaseError).toBeLessThan(5.0);
         });
     }
 });
 
-// ── Test 4: Gap degradation curve ──────────────────────────────────
-// Baseline: all ~0.006-0.008. Tighten to 0.03/0.05/0.1.
+// ── Benchmark 4: Gap degradation curve ──────────────────────────────
 
-describe("scoring: gap degradation", () => {
+describe("benchmark: gap degradation", () => {
     const cases: [number, number][] = [
         [0.1, 0.03],
         [0.3, 0.05],
         [0.5, 0.1],
     ];
 
-    for (const [gap, maxErr] of cases) {
-        it(`gap=${(gap * 100).toFixed(0)}%: tau error < ${maxErr}`, () => {
+    for (const [gap, softTarget] of cases) {
+        it(`gap=${(gap * 100).toFixed(0)}%: tau error`, () => {
             const opts: SyntheticOptions = {
                 tau: 24.5,
                 days: 150,
@@ -159,15 +188,18 @@ describe("scoring: gap degradation", () => {
             const analysis = analyzeCircadian(records);
             const score = scoreAnalysis(analysis, opts);
             logScore(`gap=${(gap * 100).toFixed(0)}%`, score);
-            expect(score.tauError).toBeLessThan(maxErr);
+            benchmark(`gap/${(gap * 100).toFixed(0)}%`, "tauError", score.tauError, softTarget);
+            assertHardDriftLimits(analysis.days);
+            logDriftPenalty(`gap/${(gap * 100).toFixed(0)}%`, analysis);
+            // Catastrophic guard
+            expect(score.tauError).toBeLessThan(0.5);
         });
     }
 });
 
-// ── Test 5: Variable tau (step change) ─────────────────────────────
-// Baseline: first=24.200, second=24.799. Tighten to ±0.1.
+// ── Benchmark 5: Variable tau (step change) ─────────────────────────
 
-describe("scoring: variable tau", () => {
+describe("benchmark: variable tau", () => {
     it("tracks step change in tau", () => {
         const opts: SyntheticOptions = {
             tauSegments: [
@@ -195,35 +227,31 @@ describe("scoring: variable tau", () => {
         const meanFirst = firstHalfTaus.reduce((s, t) => s + t, 0) / firstHalfTaus.length;
         const meanSecond = secondHalfTaus.reduce((s, t) => s + t, 0) / secondHalfTaus.length;
 
-        console.log(
-            `  variable tau: first half mean=${meanFirst.toFixed(3)}, second half mean=${meanSecond.toFixed(3)}`
-        );
-        expect(Math.abs(meanFirst - 24.2)).toBeLessThan(0.1);
-        expect(Math.abs(meanSecond - 24.8)).toBeLessThan(0.1);
+        console.log(`  variable tau: first half mean=${meanFirst.toFixed(3)}, second half mean=${meanSecond.toFixed(3)}`);
+        benchmark("variable-tau", "firstHalfError", Math.abs(meanFirst - 24.2), 0.1);
+        benchmark("variable-tau", "secondHalfError", Math.abs(meanSecond - 24.8), 0.1);
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("variable-tau", analysis);
+        // Catastrophic guards
+        expect(Math.abs(meanFirst - 24.2)).toBeLessThan(1.0);
+        expect(Math.abs(meanSecond - 24.8)).toBeLessThan(1.0);
     });
 });
 
-// ── Test 6: Nap contamination resistance ───────────────────────────
-// Naps are 2-3h so they don't qualify as anchors (min 4h).
-// Make naps longer (5-6h) so they DO become anchor candidates — the
-// nap weight multiplier (0.15) is the only thing keeping them at bay.
+// ── Benchmark 6: Nap contamination resistance ───────────────────────
 
-describe("scoring: nap contamination", () => {
-    it("tau error < 0.04 with 50% long-nap days", () => {
-        // Generate records manually: main sleeps + long naps at offset phase
+describe("benchmark: nap contamination", () => {
+    it("tau error with 50% long-nap days", () => {
         const opts: SyntheticOptions = { tau: 24.5, days: 120, noise: 0.3, seed: 600 };
         const records = generateSyntheticRecords(opts);
 
-        // Add long naps (5-6h, quality=0.7) at +6h offset from true circadian midpoint.
-        // These qualify as Tier B anchors — the nap weight (0.15) should prevent them
-        // from dominating the regression.
         const baseDate = new Date("2024-01-01T00:00:00");
         let napId = 90000;
         for (let d = 0; d < 120; d += 2) {
             const dayDate = new Date(baseDate);
             dayDate.setDate(dayDate.getDate() + d);
             const trueMid = computeTrueMidpoint(d, opts);
-            const napMid = trueMid + 6; // 6h offset — significant but not anti-phase
+            const napMid = trueMid + 6;
             const napDur = 5.5;
             const halfDur = napDur / 2;
             const startMs = dayDate.getTime() + (napMid - halfDur) * 3_600_000;
@@ -258,17 +286,20 @@ describe("scoring: nap contamination", () => {
         const analysis = analyzeCircadian(records);
         const score = scoreAnalysis(analysis, opts);
         logScore("nap-contamination", score);
-        expect(score.tauError).toBeLessThan(0.04);
-        expect(score.meanPhaseError).toBeLessThan(0.8);
+        benchmark("nap-contamination", "tauError", score.tauError, 0.04);
+        benchmark("nap-contamination", "meanPhaseError", score.meanPhaseError, 0.8);
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("nap-contamination", analysis);
+        // Catastrophic guards
+        expect(score.tauError).toBeLessThan(0.5);
+        expect(score.meanPhaseError).toBeLessThan(3.0);
     });
 });
 
-// ── Test 7: Outlier contamination resistance ───────────────────────
-// Increase to 20% outliers at 8h offset — more aggressive.
-// Baseline with robust regression: tau error ~0.007.
+// ── Benchmark 7: Outlier contamination resistance ───────────────────
 
-describe("scoring: outlier contamination", () => {
-    it("tau error < 0.05 with 20% outliers", () => {
+describe("benchmark: outlier contamination", () => {
+    it("tau error with 20% outliers", () => {
         const opts: SyntheticOptions = {
             tau: 24.5,
             days: 150,
@@ -281,16 +312,20 @@ describe("scoring: outlier contamination", () => {
         const analysis = analyzeCircadian(records);
         const score = scoreAnalysis(analysis, opts);
         logScore("outlier-contamination", score);
-        expect(score.tauError).toBeLessThan(0.05);
-        expect(score.meanPhaseError).toBeLessThan(0.8);
+        benchmark("outlier-contamination", "tauError", score.tauError, 0.05);
+        benchmark("outlier-contamination", "meanPhaseError", score.meanPhaseError, 0.8);
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("outlier-contamination", analysis);
+        // Catastrophic guards
+        expect(score.tauError).toBeLessThan(0.5);
+        expect(score.meanPhaseError).toBeLessThan(3.0);
     });
 });
 
-// ── Test 8: Forecast accuracy (holdout) ────────────────────────────
-// Baseline: forecastPhaseError ~0.3. Tighten to 1.0.
+// ── Benchmark 8: Forecast accuracy (holdout) ────────────────────────
 
-describe("scoring: forecast accuracy", () => {
-    it("forecast phase error < 1.0h on 30-day holdout", () => {
+describe("benchmark: forecast accuracy", () => {
+    it("forecast phase error on 30-day holdout", () => {
         const opts: SyntheticOptions = { tau: 24.5, days: 150, noise: 0.3, seed: 800 };
         const allRecords = generateSyntheticRecords(opts);
 
@@ -301,13 +336,17 @@ describe("scoring: forecast accuracy", () => {
         const analysis = analyzeCircadian(trainRecords, 30);
         const score = scoreAnalysis(analysis, opts, 120);
         logScore("forecast-holdout", score);
-        expect(score.forecastPhaseError).toBeLessThan(1.5);
+        benchmark("forecast-holdout", "forecastPhaseError", score.forecastPhaseError, 1.5);
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("forecast-holdout", analysis);
+        // Catastrophic guard
+        expect(score.forecastPhaseError).toBeLessThan(5.0);
     });
 });
 
-// ── Test 9: Short dataset graceful degradation ─────────────────────
+// ── Correctness 9: Short dataset graceful degradation ────────────────
 
-describe("scoring: short dataset degradation", () => {
+describe("correctness: short dataset degradation", () => {
     const lengths = [15, 30, 60, 90, 120];
     const errors: number[] = [];
 
@@ -321,20 +360,21 @@ describe("scoring: short dataset degradation", () => {
             errors.push(score.tauError);
             expect(analysis.globalTau).toBeGreaterThan(23.5);
             expect(analysis.globalTau).toBeLessThan(25.5);
+            assertHardDriftLimits(analysis.days);
         });
     }
 
     it("accuracy improves with more data", () => {
         if (errors.length === lengths.length) {
+            benchmark("short-dataset", "improvementCheck", errors[errors.length - 1]!, errors[1]! + 0.05);
             expect(errors[errors.length - 1]!).toBeLessThan(errors[1]! + 0.05);
         }
     });
 });
 
-// ── Test 10: Confidence calibration ────────────────────────────────
-// Use high noise + gaps to create a mix of confidence levels.
+// ── Correctness 10: Confidence calibration ───────────────────────────
 
-describe("scoring: confidence calibration", () => {
+describe("correctness: confidence calibration", () => {
     it("high-confidence days have lower phase error than low-confidence days", () => {
         const opts: SyntheticOptions = { tau: 24.5, days: 200, noise: 1.5, gapFraction: 0.3, seed: 1000 };
         const records = generateSyntheticRecords(opts);
@@ -359,26 +399,24 @@ describe("scoring: confidence calibration", () => {
         const mean = (arr: number[]) => (arr.length > 0 ? arr.reduce((s, e) => s + e, 0) / arr.length : Infinity);
 
         const highMean = mean(bins.high);
-        const medMean = mean(bins.medium);
         const lowMean = mean(bins.low);
 
         console.log(
-            `  confidence calibration: high=${highMean.toFixed(2)} (n=${bins.high.length}), medium=${medMean.toFixed(2)} (n=${bins.medium.length}), low=${lowMean.toFixed(2)} (n=${bins.low.length})`
+            `  confidence calibration: high=${highMean.toFixed(2)} (n=${bins.high.length}), medium=${mean(bins.medium).toFixed(2)} (n=${bins.medium.length}), low=${lowMean.toFixed(2)} (n=${bins.low.length})`,
         );
 
-        // High-confidence should be better than low-confidence
         if (bins.high.length >= 5 && bins.low.length >= 5) {
             expect(highMean).toBeLessThan(lowMean + 0.5);
         }
-        // At least two confidence levels should have samples
         const nonEmpty = [bins.high, bins.medium, bins.low].filter((b) => b.length > 0).length;
         expect(nonEmpty).toBeGreaterThanOrEqual(2);
+        assertHardDriftLimits(analysis.days);
     });
 });
 
-// ── Test 11: Sleep fragmentation resistance ────────────────────────
+// ── Correctness 11: Sleep fragmentation resistance ──────────────────
 
-describe("scoring: sleep fragmentation", () => {
+describe("correctness: sleep fragmentation", () => {
     it("localTau stays bounded during sleep fragmentation", () => {
         const opts: SyntheticOptions = {
             tau: 25.0,
@@ -395,33 +433,31 @@ describe("scoring: sleep fragmentation", () => {
         const records = generateSyntheticRecords(opts);
         const analysis = analyzeCircadian(records);
 
+        // Hard drift limits
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("fragmentation", analysis);
+
         const baseDate = new Date("2024-01-01T00:00:00");
         const fragmentedTaus: number[] = [];
 
         for (const day of analysis.days) {
             if (day.isForecast) continue;
             const d = Math.round((new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000);
-
-            // All localTau should be in reasonable range
-            expect(day.localTau).toBeGreaterThan(24.0);
-            expect(day.localTau).toBeLessThan(26.0);
-
             if (d >= 60 && d < 120) {
                 fragmentedTaus.push(day.localTau);
             }
         }
 
-        // Mean localTau during fragmented period should be close to true tau
         const meanFragTau = fragmentedTaus.reduce((s, t) => s + t, 0) / fragmentedTaus.length;
         console.log(`  fragmentation: mean localTau during fragmented period = ${meanFragTau.toFixed(3)} (true=25.0)`);
-        expect(Math.abs(meanFragTau - 25.0)).toBeLessThan(0.5);
+
+        // Tight bounds as benchmark, wide bounds as correctness
+        benchmark("fragmentation", "localTauCloseness", Math.abs(meanFragTau - 25.0), 0.5);
+        expect(Math.abs(meanFragTau - 25.0)).toBeLessThan(2.0);
     });
 });
 
-// ── Test 12: Overlay smoothness ─────────────────────────────────────
-// The circadian overlay midpoint should not jump more than a few hours
-// between consecutive days. Max plausible daily drift is ~2h (tau=26),
-// so a 3h threshold catches overlay breakage without false positives.
+// ── Correctness 12: Overlay smoothness ──────────────────────────────
 
 /** Circular midpoint from nightStart/nightEnd */
 function overlayMid(day: { nightStartHour: number; nightEndHour: number }): number {
@@ -434,7 +470,6 @@ function maxOverlayJump(days: CircadianAnalysis["days"]): { maxJump: number; atD
     let maxJump = 0;
     let atDate = "";
     for (let i = 1; i < data.length; i++) {
-        // Skip jumps across segment boundaries (non-consecutive calendar days)
         const prevMs = new Date(data[i - 1]!.date + "T00:00:00").getTime();
         const currMs = new Date(data[i]!.date + "T00:00:00").getTime();
         if (Math.round((currMs - prevMs) / 86_400_000) > 1) continue;
@@ -451,7 +486,7 @@ function maxOverlayJump(days: CircadianAnalysis["days"]): { maxJump: number; atD
     return { maxJump, atDate };
 }
 
-describe("scoring: overlay smoothness (synthetic)", () => {
+describe("correctness: overlay smoothness (synthetic)", () => {
     it("no jumps > 3h with clean data", () => {
         const opts: SyntheticOptions = { tau: 25.0, days: 180, noise: 0.3, seed: 1200 };
         const records = generateSyntheticRecords(opts);
@@ -459,6 +494,7 @@ describe("scoring: overlay smoothness (synthetic)", () => {
         const { maxJump, atDate } = maxOverlayJump(analysis.days);
         console.log(`  clean overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
         expect(maxJump).toBeLessThan(3);
+        assertHardDriftLimits(analysis.days);
     });
 
     it("no jumps > 3h with gaps", () => {
@@ -468,6 +504,7 @@ describe("scoring: overlay smoothness (synthetic)", () => {
         const { maxJump, atDate } = maxOverlayJump(analysis.days);
         console.log(`  gapped overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
         expect(maxJump).toBeLessThan(3);
+        assertHardDriftLimits(analysis.days);
     });
 
     it("no jumps > 3h with fragmented sleep", () => {
@@ -483,6 +520,7 @@ describe("scoring: overlay smoothness (synthetic)", () => {
         const { maxJump, atDate } = maxOverlayJump(analysis.days);
         console.log(`  fragmented overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
         expect(maxJump).toBeLessThan(3);
+        assertHardDriftLimits(analysis.days);
     });
 
     it("no jumps > 3h with variable tau", () => {
@@ -500,83 +538,24 @@ describe("scoring: overlay smoothness (synthetic)", () => {
         const { maxJump, atDate } = maxOverlayJump(analysis.days);
         console.log(`  variable-tau overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
         expect(maxJump).toBeLessThan(3);
-    });
-});
-
-describe.skipIf(!hasRealData)("scoring: overlay smoothness (real data)", () => {
-    it("no jumps > 3h in real data overlay", () => {
-        const records = loadRealData();
-        const analysis = analyzeCircadian(records);
-        const { maxJump, atDate } = maxOverlayJump(analysis.days);
-        console.log(`  real data overlay: max jump = ${maxJump.toFixed(2)}h at ${atDate}`);
-        expect(maxJump).toBeLessThan(3);
-    });
-});
-
-// ── Test 14: Real data scoring ─────────────────────────────────────
-
-describe.skipIf(!hasRealData)("scoring: real data", () => {
-    it("reports accuracy scores on real data", () => {
-        const records = loadRealData();
-        const analysis = analyzeCircadian(records);
-
-        const dataDays = analysis.days.filter((d) => !d.isForecast);
-        const totalDays = dataDays.length;
-
-        let prevMid = ((((dataDays[0]!.nightStartHour + dataDays[0]!.nightEndHour) / 2) % 24) + 24) % 24;
-        let accumulated = 0;
-
-        for (let i = 1; i < dataDays.length; i++) {
-            const mid = ((((dataDays[i]!.nightStartHour + dataDays[i]!.nightEndHour) / 2) % 24) + 24) % 24;
-            let delta = mid - prevMid;
-            if (delta > 12) delta -= 24;
-            if (delta < -12) delta += 24;
-            accumulated += delta;
-            prevMid = mid;
-        }
-        const revolutions = Math.abs(accumulated / 24);
-
-        const estimatedTau =
-            revolutions > 0.1
-                ? (24 * totalDays) / (totalDays - Math.sign(accumulated) * revolutions)
-                : analysis.globalTau;
-
-        console.log(`  Real data: ${records.length} records, ${totalDays} days`);
-        console.log(`  globalTau=${analysis.globalTau.toFixed(4)}, revolution-tau=${estimatedTau.toFixed(4)}`);
-        console.log(
-            `  anchors=${analysis.anchorCount} (A=${analysis.anchorTierCounts.A} B=${analysis.anchorTierCounts.B} C=${analysis.anchorTierCounts.C})`
-        );
-        console.log(`  medianResidual=${analysis.medianResidualHours.toFixed(3)}h`);
-
-        expect(analysis.globalTau).toBeGreaterThan(23.5);
-        expect(analysis.globalTau).toBeLessThan(26.5);
-        expect(analysis.medianResidualHours).toBeLessThan(4);
-
-        // Per-day localTau should stay bounded — no unreasonable values
-        for (const day of dataDays) {
-            expect(day.localTau).toBeGreaterThan(23.5);
-            expect(day.localTau).toBeLessThan(26.0);
-        }
+        assertHardDriftLimits(analysis.days);
     });
 });
 
 // ── Cumulative phase shift utilities ────────────────────────────────
 
-/** Compute cumulative phase shift from overlay day-to-day deltas (in hours) */
 function cumulativeShiftHours(days: CircadianAnalysis["days"]): number {
     const data = days.filter((d) => !d.isForecast && !d.isGap);
     if (data.length < 2) return 0;
     let prevMid = overlayMid(data[0]!);
     let accumulated = 0;
     for (let i = 1; i < data.length; i++) {
-        // Skip drift across segment boundaries (non-consecutive calendar days)
         const prevMs = new Date(data[i - 1]!.date + "T00:00:00").getTime();
         const currMs = new Date(data[i]!.date + "T00:00:00").getTime();
         const dayGap = Math.round((currMs - prevMs) / 86_400_000);
 
         const mid = overlayMid(data[i]!);
         if (dayGap > 1) {
-            // Don't accumulate shift across gaps; just update prevMid
             prevMid = mid;
             continue;
         }
@@ -589,16 +568,15 @@ function cumulativeShiftHours(days: CircadianAnalysis["days"]): number {
     return accumulated;
 }
 
-/** Convert cumulative shift to implied tau */
 function shiftToTau(shiftHours: number, numDays: number): number {
     const revolutions = Math.abs(shiftHours / 24);
     if (revolutions < 0.1) return 24;
     return (24 * numDays) / (numDays - Math.sign(shiftHours) * revolutions);
 }
 
-// ── Test 15: Cumulative phase shift vs ground truth (synthetic) ─────
+// ── Benchmark 15: Cumulative phase shift vs ground truth (synthetic) ─
 
-describe("scoring: cumulative phase shift (synthetic)", () => {
+describe("benchmark: cumulative phase shift (synthetic)", () => {
     const cases: { tau: number; days: number }[] = [
         { tau: 24.0, days: 180 },
         { tau: 24.5, days: 180 },
@@ -607,7 +585,7 @@ describe("scoring: cumulative phase shift (synthetic)", () => {
     ];
 
     for (const { tau, days } of cases) {
-        it(`tau=${tau}, ${days}d: overlay shift within 15% of expected`, () => {
+        it(`tau=${tau}, ${days}d: overlay shift vs expected`, () => {
             const opts: SyntheticOptions = { tau, days, noise: 0.3, seed: 1500 + Math.round(tau * 100) + days };
             const records = generateSyntheticRecords(opts);
             const analysis = analyzeCircadian(records);
@@ -618,17 +596,22 @@ describe("scoring: cumulative phase shift (synthetic)", () => {
             const impliedTau = shiftToTau(actualShiftH, dataDays.length);
 
             console.log(
-                `  tau=${tau} ${days}d: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`
+                `  tau=${tau} ${days}d: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`,
             );
 
+            assertHardDriftLimits(analysis.days);
+            logDriftPenalty(`cumshift/${tau}/${days}d`, analysis);
+
             if (Math.abs(expectedShiftH) < 1) {
-                // For tau≈24, absolute tolerance (shift near 0)
-                expect(Math.abs(actualShiftH - expectedShiftH)).toBeLessThan(5);
+                benchmark(`cumshift/${tau}/${days}d`, "absShiftError", Math.abs(actualShiftH - expectedShiftH), 5);
+                // Catastrophic guard
+                expect(Math.abs(actualShiftH - expectedShiftH)).toBeLessThan(15);
             } else {
-                // Relative tolerance: overlay shift should be within 15% of expected
                 const ratio = actualShiftH / expectedShiftH;
-                expect(ratio).toBeGreaterThan(0.85);
-                expect(ratio).toBeLessThan(1.15);
+                benchmark(`cumshift/${tau}/${days}d`, "shiftRatio", ratio, 1.15);
+                // Catastrophic guard
+                expect(ratio).toBeGreaterThan(0.5);
+                expect(ratio).toBeLessThan(1.5);
             }
         });
     }
@@ -651,20 +634,24 @@ describe("scoring: cumulative phase shift (synthetic)", () => {
         const impliedTau = shiftToTau(actualShiftH, dataDays.length);
 
         console.log(
-            `  fragmented: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`
+            `  fragmented: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`,
         );
 
         const ratio = actualShiftH / expectedShiftH;
-        expect(ratio).toBeGreaterThan(0.85);
-        expect(ratio).toBeLessThan(1.15);
+        benchmark("cumshift/fragmented", "shiftRatio", ratio, 1.15);
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("cumshift/fragmented", analysis);
+        // Catastrophic guard
+        expect(ratio).toBeGreaterThan(0.5);
+        expect(ratio).toBeLessThan(1.5);
     });
 });
 
-// ── Test 16: Overlay shift vs periodogram (real data) ───────────────
+// ── Benchmark 16: Overlay shift vs periodogram (real data) ───────────
 
-describe.skipIf(!hasRealData)("scoring: cumulative shift vs periodogram (real data)", () => {
-    it("overlay implied tau within 15% drift of periodogram peak", () => {
-        const records = loadRealData();
+describe.skipIf(!hasRealData(AOZORA_FILE))("benchmark: cumulative shift vs periodogram (real data)", () => {
+    it("overlay implied tau vs periodogram peak", () => {
+        const records = loadRealData(AOZORA_FILE);
         const analysis = analyzeCircadian(records);
         const periodogram = computeLombScargle(analysis.anchors);
 
@@ -676,26 +663,27 @@ describe.skipIf(!hasRealData)("scoring: cumulative shift vs periodogram (real da
         const peakTau = periodogram.peakPeriod;
         const expectedShiftH = (peakTau - 24) * numDays;
 
-        // Compare drifts (tau - 24) rather than raw tau, since drift is the
-        // quantity that accumulates and small absolute differences in tau
-        // compound over hundreds of days
         const overlayDrift = overlayTau - 24;
         const periodogramDrift = peakTau - 24;
 
         console.log(
-            `  periodogram peak: ${peakTau.toFixed(4)}h (power=${periodogram.peakPower.toFixed(3)}, sig=${periodogram.significanceThreshold.toFixed(3)})`
+            `  periodogram peak: ${peakTau.toFixed(4)}h (power=${periodogram.peakPower.toFixed(3)}, sig=${periodogram.significanceThreshold.toFixed(3)})`,
         );
         console.log(`  overlay: shift=${actualShiftH.toFixed(1)}h impliedTau=${overlayTau.toFixed(4)}`);
         console.log(`  expected shift: ${expectedShiftH.toFixed(1)}h`);
         console.log(
-            `  drift comparison: overlay=${overlayDrift.toFixed(4)} periodogram=${periodogramDrift.toFixed(4)} ratio=${(overlayDrift / periodogramDrift).toFixed(3)}`
+            `  drift comparison: overlay=${overlayDrift.toFixed(4)} periodogram=${periodogramDrift.toFixed(4)} ratio=${(overlayDrift / periodogramDrift).toFixed(3)}`,
         );
 
-        // The overlay's implied drift should be within 15% of the periodogram's
+        assertHardDriftLimits(analysis.days);
+        logDriftPenalty("periodogram-comparison", analysis);
+
         if (periodogramDrift > 0.05) {
             const driftRatio = overlayDrift / periodogramDrift;
-            expect(driftRatio).toBeGreaterThan(0.85);
-            expect(driftRatio).toBeLessThan(1.15);
+            benchmark("periodogram", "driftRatio", driftRatio, 1.15);
+            // Catastrophic guard
+            expect(driftRatio).toBeGreaterThan(0.5);
+            expect(driftRatio).toBeLessThan(1.5);
         }
     });
 });

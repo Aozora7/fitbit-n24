@@ -84,16 +84,6 @@ export function computeTrueMidpoint(day: number, opts: SyntheticOptions = {}): n
     return midpoint;
 }
 
-/** Get drift (tau - 24) for a given day from tauSegments or constant tau */
-function getDrift(day: number, opts: SyntheticOptions): number {
-    const { tau = 24.5, tauSegments } = opts;
-    if (!tauSegments || tauSegments.length === 0) return tau - 24;
-    for (const seg of tauSegments) {
-        if (day < seg.untilDay) return seg.tau - 24;
-    }
-    return tauSegments[tauSegments.length - 1]!.tau - 24;
-}
-
 /**
  * Generate synthetic SleepRecord[] with a known tau for testing.
  * Supports variable tau (tauSegments), naps, and outliers.

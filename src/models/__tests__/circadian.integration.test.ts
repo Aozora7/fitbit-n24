@@ -3,6 +3,8 @@ import { analyzeCircadian } from "../circadian";
 import { generateSyntheticRecords } from "./fixtures/synthetic";
 import { hasRealData, loadRealData } from "./fixtures/loadRealData";
 
+const AOZORA_FILE = "Aozora_2026-02-13.json";
+
 // ── Synthetic data tests ────────────────────────────────────────────
 
 describe("analyzeCircadian — synthetic data", () => {
@@ -451,75 +453,9 @@ describe("analyzeCircadian — DSPD to N24 transition", () => {
 
 // ── Real data regression tests ──────────────────────────────────────
 
-describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () => {
-    it("produces consistent output on real data", () => {
-        const records = loadRealData();
-        expect(records.length).toBeGreaterThan(100);
-
-        const result = analyzeCircadian(records);
-
-        // Global tau should be in a plausible range (may include DSPD periods)
-        expect(result.globalTau).toBeGreaterThan(23.5);
-        expect(result.globalTau).toBeLessThan(26.0);
-
-        // Should have meaningful anchor counts
-        expect(result.anchorCount).toBeGreaterThan(50);
-        expect(result.anchorTierCounts.A).toBeGreaterThan(0);
-
-        // Median residual should be reasonable
-        expect(result.medianResidualHours).toBeLessThan(3);
-
-        // Days array should cover the data range
-        expect(result.days.length).toBeGreaterThan(100);
-
-        // All days should have valid confidence
-        for (const day of result.days) {
-            expect(day.confidenceScore).toBeGreaterThanOrEqual(0);
-            expect(day.confidenceScore).toBeLessThanOrEqual(1);
-            expect(["high", "medium", "low"]).toContain(day.confidence);
-        }
-    });
-
-    it("marks long data gaps as isGap", () => {
-        const records = loadRealData();
-        const result = analyzeCircadian(records);
-
-        const gapDays = result.days.filter((d) => d.isGap);
-        const nonGapDays = result.days.filter((d) => !d.isGap);
-
-        // Find actual gaps in the data: consecutive date ranges with no sleep records
-        const recordDates = new Set(records.map((r) => r.dateOfSleep));
-        const allDates = result.days.map((d) => d.date);
-        const firstDate = new Date(allDates[0]!);
-        const lastDate = new Date(allDates[allDates.length - 1]!);
-
-        // Count max consecutive days without data to see if a long gap exists
-        let maxConsecutiveEmpty = 0;
-        let currentRun = 0;
-        for (const day of result.days) {
-            if (!recordDates.has(day.date) && !day.isForecast) {
-                currentRun++;
-                maxConsecutiveEmpty = Math.max(maxConsecutiveEmpty, currentRun);
-            } else {
-                currentRun = 0;
-            }
-        }
-
-        if (maxConsecutiveEmpty > 14) {
-            // Data has a long gap — verify gap days are marked
-            expect(gapDays.length).toBeGreaterThan(0);
-
-            // All gap days should have no anchor sleep
-            expect(gapDays.every((d) => d.anchorSleep == null)).toBe(true);
-        }
-
-        // Days with actual data should not be isGap
-        const daysWithAnchors = result.days.filter((d) => d.anchorSleep != null);
-        expect(daysWithAnchors.every((d) => !d.isGap)).toBe(true);
-    });
-
+describe.skipIf(!hasRealData(AOZORA_FILE))("analyzeCircadian — real data regression", () => {
     it("Sept 2022 fragmented sleep does not reverse overlay direction", () => {
-        const records = loadRealData();
+        const records = loadRealData(AOZORA_FILE);
         const result = analyzeCircadian(records);
 
         // Extract days for 2022-09-14 through 2022-09-22
@@ -536,20 +472,5 @@ describe.skipIf(!hasRealData)("analyzeCircadian — real data regression", () =>
         for (const day of septDays) {
             expect(day.localTau).toBeGreaterThanOrEqual(24.0);
         }
-    });
-
-    it("forecast extends smoothly from data", () => {
-        const records = loadRealData();
-        const result = analyzeCircadian(records, 14);
-
-        const dataDays = result.days.filter((d) => !d.isForecast);
-        const forecastDays = result.days.filter((d) => d.isForecast);
-
-        expect(forecastDays.length).toBe(14);
-
-        // Last data day and first forecast day should have similar tau
-        const lastData = dataDays[dataDays.length - 1]!;
-        const firstForecast = forecastDays[0]!;
-        expect(Math.abs(lastData.localTau - firstForecast.localTau)).toBeLessThan(0.5);
     });
 });

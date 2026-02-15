@@ -455,15 +455,45 @@ A separate `tsconfig.cli.json` provides Node.js-compatible settings (`module: "N
 
 ## Test coverage
 
-| Test file                        | Purpose                                                                                |
-| -------------------------------- | -------------------------------------------------------------------------------------- |
-| `circadian.integration.test.ts`  | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions        |
-| `circadian.scoring.test.ts`      | Accuracy metrics: phase error, noise/gap degradation, confidence calibration           |
-| `circadian.regimechange.test.ts` | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation |
-| `circadian.internals.test.ts`    | Unit tests for internal helper functions                                               |
-| `circadian.groundtruth.test.ts`  | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data) |
-| `overlayPath.test.ts`            | Overlay interpolation: linear interp, phase wrapping, extrapolation                    |
-| `lombScargle.test.ts`            | Periodogram computation tests                                                          |
+| Test file                        | Category     | Purpose                                                                                |
+| -------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
+| `circadian.integration.test.ts`  | correctness  | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions        |
+| `circadian.scoring.test.ts`      | mixed        | Benchmarks (tau sweep, phase accuracy, noise/gap/outlier degradation, forecast, cumulative shift) + correctness (confidence calibration, overlay smoothness, drift limits) |
+| `circadian.regimechange.test.ts` | correctness  | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation |
+| `circadian.internals.test.ts`    | correctness  | Unit tests for internal helper functions                                               |
+| `circadian.groundtruth.test.ts`  | correctness  | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data) |
+| `overlayPath.test.ts`            | correctness  | Overlay interpolation: linear interp, phase wrapping, extrapolation                    |
+| `lombScargle.test.ts`            | correctness  | Periodogram computation tests                                                          |
+
+### Test categories
+
+Tests are split into two categories:
+
+- **Correctness tests** (`correctness:` prefix) — hard-fail on violations. Cover overlay smoothness (max 3h jump), hard drift limits, confidence calibration, sanity bounds. These should never reject a legitimately better algorithm.
+- **Benchmark tests** (`benchmark:` prefix) — log `BENCHMARK` lines with soft targets for machine parsing, but only hard-fail on catastrophic guards (very wide bounds, ~10-25x headroom). Enables automated algorithm optimization without false rejections.
+
+Benchmark output format (tab-separated, greppable):
+```
+BENCHMARK	label	metric=value	target<threshold	PASS|REGRESSED
+```
+
+Ground truth compact output (default, set `VERBOSE=1` for full diagnostics):
+```
+GTRESULT	dataset-name	n=245	mean=1.23h	median=0.98h	p90=2.45h	bias=+0.34h	drift-agree=82%	tau-delta=+1.2min	streaks=2	max-streak=8d	penalty=0.15
+```
+
+### Hard drift limits
+
+All tests enforce `localDrift` in [-1.5, +3.0] h/day via `assertHardDriftLimits()` from `fixtures/driftPenalty.ts`. This corresponds to `localTau` in [22.5, 27.0]. Values outside this range indicate a broken algorithm — no real circadian rhythm exceeds these bounds.
+
+### Drift penalty scoring
+
+`computeDriftPenalty()` scores prolonged periods near the hard limits:
+
+- **Penalty zones**: drift in [-1.5, -0.5] or [2.0, 3.0] (within 1h of hard limits)
+- **Per-day penalty**: linear interpolation (0 at zone inner edge, 1.0 at hard limit)
+- **Consecutive multiplier**: day penalty × streak length for superlinear growth (3 consecutive days at penalty 0.5 each → 0.5×1 + 0.5×2 + 0.5×3 = 3.0)
+- Reported as `DRIFT_PENALTY` lines in benchmark tests and `penalty=` field in ground truth compact output
 
 ## Tailwind CSS v4
 

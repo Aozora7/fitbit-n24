@@ -13,6 +13,7 @@ npm run analyze-period -- <file.json> [startDate] [endDate] # Analyze specific d
 npm run split-gaps -- <file.json> # Split file with gaps into separate segment files
 npm run test        # Run all tests once (vitest run)
 npm run test:watch  # Watch mode for TDD (vitest)
+VERBOSE=1 npx vitest run circadian.groundtruth  # Full diagnostic output for ground truth tests
 ```
 
 ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `npx eslint <file>` or `npx prettier --check <file>`
@@ -73,7 +74,10 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Renderer draw order** — circadian overlay → schedule overlay → sleep blocks → date labels → editor overlay; later layers paint over earlier ones
 - **Overlay editor** — distinct edit mode (calendar mode only, disabled in tau mode); control points persist via `usePersistedState`; manual overlay renders in cyan, algorithm overlay dimmed as reference; "Export with overlay" produces ground-truth JSON with both `sleep` and `overlay` arrays
 - **Ground-truth test data** — `test-data/` is a gitignored independent git repo; each subdirectory contains `sleep.json` + `overlay.json` pairs; `circadian.groundtruth.test.ts` iterates all pairs and scores algorithm output against manual overlays (skips gracefully if directory missing)
-- **Tests** — Vitest, co-located in `__tests__/` dirs next to source; test files excluded from `tsc -b` build via `tsconfig.json` exclude; `_internals` barrel export on `circadian/index.ts` exposes private helpers for unit testing (tree-shaken from production); real data tests skip gracefully if `public/dev-data/auto-import.json` is missing
+- **Tests** — Vitest, co-located in `__tests__/` dirs next to source; test files excluded from `tsc -b` build via `tsconfig.json` exclude; `_internals` barrel export on `circadian/index.ts` exposes private helpers for unit testing (tree-shaken from production); real data tests use `loadRealData(fileName)` from `fixtures/loadRealData.ts` which loads from `test-data/` by filename (skip gracefully if missing)
+- **Test categories** — `correctness:` tests hard-fail on violations (overlay smoothness, drift limits, confidence calibration); `benchmark:` tests log `BENCHMARK` lines with soft targets but only hard-fail on catastrophic guards (very wide bounds), enabling algorithm optimization without false rejections
+- **Ground truth output** — compact `GTRESULT` one-liner per dataset by default (machine-parseable for automated optimization); set `VERBOSE=1` env var for full diagnostic ASCII boxes with rolling windows and divergence streaks
+- **Hard drift limits** — `localDrift` must be in [-1.5, +3.0] h/day (i.e. `localTau` in [22.5, 27.0]); enforced by `assertHardDriftLimits()` across all tests; `computeDriftPenalty()` scores prolonged periods near limits with superlinear consecutive-day penalty
 
 ## Documentation
 

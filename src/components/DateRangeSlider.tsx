@@ -78,7 +78,7 @@ export default function DateRangeSlider() {
         const firstDate = new Date(firstDateStr + "T00:00:00");
 
         // Find all year boundaries within the range
-        let currentDate = new Date(firstDate);
+        const currentDate = new Date(firstDate);
         for (let dayIdx = 0; dayIdx <= totalDays; dayIdx++) {
             currentDate.setTime(firstDate.getTime());
             currentDate.setDate(firstDate.getDate() + dayIdx);

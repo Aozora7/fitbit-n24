@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { analyzeCircadian } from "../circadian";
 import { hasTestData, listGroundTruthDatasets } from "./fixtures/loadGroundTruth";
+import { assertHardDriftLimits, computeDriftPenalty } from "./fixtures/driftPenalty";
+
+const VERBOSE = process.env.VERBOSE === "1";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -88,6 +91,114 @@ function formatPct(n: number, total: number): string {
     return `${n}/${total} (${((n / total) * 100).toFixed(0)}%)`;
 }
 
+// ── Output formatters ────────────────────────────────────────────────
+
+interface GroundTruthStats {
+    name: string;
+    n: number;
+    mean: number;
+    median: number;
+    p90: number;
+    signedMean: number;
+    directionAgree: number;
+    directionDisagree: number;
+    algoStalled: number;
+    driftTotal: number;
+    algoShift: number;
+    algoTau: number;
+    gtShift: number;
+    gtTau: number;
+    tauDeltaMin: number;
+    streakCount: number;
+    maxStreakDays: number;
+    driftPenalty: number;
+    penaltyDays: number;
+    penaltyFraction: number;
+    windowStats: {
+        start: string;
+        end: string;
+        mean: number;
+        signedMean: number;
+        n: number;
+        tauAlgo: number;
+        tauManual: number;
+    }[];
+    streaks: {
+        start: string;
+        end: string;
+        days: number;
+        peakError: number;
+        avgSignedError: number;
+    }[];
+    algoDays: number;
+    gtDays: number;
+}
+
+function sign(v: number): string {
+    return (v >= 0 ? "+" : "") + v.toFixed(2);
+}
+
+function logCompact(s: GroundTruthStats): void {
+    const agreePct = s.driftTotal > 0 ? Math.round((s.directionAgree / s.driftTotal) * 100) : 0;
+    console.log(
+        `GTRESULT\t${s.name}\t` +
+            `n=${s.n}\t` +
+            `mean=${s.mean.toFixed(2)}h\t` +
+            `median=${s.median.toFixed(2)}h\t` +
+            `p90=${s.p90.toFixed(2)}h\t` +
+            `bias=${sign(s.signedMean)}h\t` +
+            `drift-agree=${agreePct}%\t` +
+            `tau-delta=${sign(s.tauDeltaMin)}min\t` +
+            `streaks=${s.streakCount}\t` +
+            `max-streak=${s.maxStreakDays}d\t` +
+            `penalty=${s.driftPenalty.toFixed(2)}`,
+    );
+}
+
+function logVerbose(s: GroundTruthStats): void {
+    console.log(`\n  ┌─ ${s.name} ────────────────────────`);
+    console.log(`  │ Phase error:  mean=${s.mean.toFixed(2)}h  median=${s.median.toFixed(2)}h  p90=${s.p90.toFixed(2)}h  (n=${s.n})`);
+    console.log(`  │ Signed bias:  ${sign(s.signedMean)}h  (+ = algo later than manual)`);
+    console.log(`  │`);
+    console.log(`  │ Drift direction (day-to-day):`);
+    console.log(`  │   agree:    ${formatPct(s.directionAgree, s.driftTotal)}`);
+    console.log(`  │   disagree: ${formatPct(s.directionDisagree, s.driftTotal)}`);
+    console.log(`  │   stalled:  ${formatPct(s.algoStalled, s.driftTotal)}  (algo ~0 but manual significant)`);
+    console.log(`  │`);
+    console.log(`  │ Overall tau:`);
+    console.log(`  │   algorithm: shift=${s.algoShift.toFixed(1)}h  tau=${s.algoTau.toFixed(4)}h  (${s.algoDays} days)`);
+    console.log(`  │   manual:    shift=${s.gtShift.toFixed(1)}h  tau=${s.gtTau.toFixed(4)}h  (${s.gtDays} days)`);
+    console.log(`  │   delta:     ${sign(s.tauDeltaMin)} min/day`);
+
+    if (s.windowStats.length > 1) {
+        console.log(`  │`);
+        console.log(`  │ Rolling 90-day windows:`);
+        for (const w of s.windowStats) {
+            const tauDelta = (w.tauAlgo - w.tauManual) * 60;
+            console.log(
+                `  │   ${w.start} → ${w.end}:  err=${w.mean.toFixed(2)}h  bias=${sign(w.signedMean)}h  tau Δ=${sign(tauDelta)}min  (n=${w.n})`,
+            );
+        }
+    }
+
+    if (s.streaks.length > 0) {
+        console.log(`  │`);
+        console.log(`  │ Divergence streaks (>2.0h for 3+ days):`);
+        for (const st of s.streaks) {
+            const dir = st.avgSignedError >= 0 ? "algo later" : "algo earlier";
+            console.log(
+                `  │   ${st.start} → ${st.end}  (${st.days}d)  peak=${st.peakError.toFixed(1)}h  ${dir} by ${Math.abs(st.avgSignedError).toFixed(1)}h`,
+            );
+        }
+    }
+
+    console.log(`  │`);
+    console.log(
+        `  │ Drift penalty:  score=${s.driftPenalty.toFixed(2)}  days=${s.penaltyDays}  fraction=${(s.penaltyFraction * 100).toFixed(1)}%`,
+    );
+    console.log(`  └────────────────────────────────────────`);
+}
+
 // ── Test suite ───────────────────────────────────────────────────────
 
 describe.skipIf(!hasTestData)("ground truth scoring", () => {
@@ -98,6 +209,12 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
             it("algorithm overlay matches ground truth", () => {
                 const analysis = analyzeCircadian(dataset.records);
                 const algoMap = new Map(analysis.days.map((d) => [d.date, d]));
+
+                // Hard drift limits
+                assertHardDriftLimits(analysis.days);
+
+                // Drift penalty
+                const penalty = computeDriftPenalty(analysis.days);
 
                 // Sort manual overlay by date
                 const gtSorted = [...dataset.overlay].sort((a, b) => a.date.localeCompare(b.date));
@@ -140,13 +257,11 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                 const signedMean = signedErrors.reduce((s, e) => s + e, 0) / signedErrors.length;
 
                 // ── 2. Directional drift agreement ───────────────
-                // For days where both algo and manual have a drift rate,
-                // check if they agree on direction (both positive = later, both negative = earlier)
                 const driftPairs = pairs.filter((p) => p.algoDrift !== undefined && p.manualDrift !== undefined);
                 let directionAgree = 0;
                 let directionDisagree = 0;
-                let algoStalled = 0; // algo says ~0 drift but manual says significant
-                const DRIFT_THRESHOLD = 0.1; // h/day: below this is "stalled"
+                let algoStalled = 0;
+                const DRIFT_THRESHOLD = 0.1;
                 for (const p of driftPairs) {
                     const ad = p.algoDrift!;
                     const md = p.manualDrift!;
@@ -159,7 +274,7 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                         if (Math.sign(ad) === Math.sign(md)) directionAgree++;
                         else directionDisagree++;
                     } else {
-                        directionAgree++; // both stalled or only algo significant
+                        directionAgree++;
                     }
                 }
 
@@ -170,24 +285,14 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                 const gtTau = shiftToTau(gtShift, gtSorted.length);
 
                 // ── 4. Rolling window breakdown ──────────────────
-                // 90-day windows to show where divergence happens
                 const WINDOW_SIZE = 90;
-                const windowStats: {
-                    start: string;
-                    end: string;
-                    mean: number;
-                    signedMean: number;
-                    n: number;
-                    tauAlgo: number;
-                    tauManual: number;
-                }[] = [];
+                const windowStats: GroundTruthStats["windowStats"] = [];
                 for (let i = 0; i < pairs.length; i += WINDOW_SIZE) {
                     const window = pairs.slice(i, i + WINDOW_SIZE);
                     if (window.length < 10) continue;
                     const wMean = window.reduce((s, p) => s + p.absError, 0) / window.length;
                     const wSignedMean = window.reduce((s, p) => s + p.signedError, 0) / window.length;
 
-                    // Window tau from paired days
                     const wAlgoDays = window.map((p) => algoMap.get(p.date)!).filter(Boolean);
                     const wGtDays = window.map((p) => gtMap.get(p.date)!).filter(Boolean);
                     const wAlgoShift = cumulativeShift(wAlgoDays);
@@ -205,15 +310,8 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                 }
 
                 // ── 5. Large divergence streaks ──────────────────
-                // Find consecutive runs where error > 2h
                 const DIVERGENCE_THRESH = 2.0;
-                const streaks: {
-                    start: string;
-                    end: string;
-                    days: number;
-                    peakError: number;
-                    avgSignedError: number;
-                }[] = [];
+                const streaks: GroundTruthStats["streaks"] = [];
                 let streakStart = -1;
                 for (let i = 0; i <= pairs.length; i++) {
                     const inStreak = i < pairs.length && pairs[i]!.absError > DIVERGENCE_THRESH;
@@ -235,55 +333,38 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                 }
 
                 // ── Output ───────────────────────────────────────
-                console.log(`\n  ┌─ ${dataset.name} ────────────────────────`);
-                console.log(
-                    `  │ Phase error:  mean=${mean.toFixed(2)}h  median=${median.toFixed(2)}h  p90=${p90.toFixed(2)}h  (n=${pairs.length})`
-                );
-                console.log(
-                    `  │ Signed bias:  ${signedMean >= 0 ? "+" : ""}${signedMean.toFixed(2)}h  (+ = algo later than manual)`
-                );
-                console.log(`  │`);
-                console.log(`  │ Drift direction (day-to-day):`);
-                console.log(`  │   agree:    ${formatPct(directionAgree, driftPairs.length)}`);
-                console.log(`  │   disagree: ${formatPct(directionDisagree, driftPairs.length)}`);
-                console.log(
-                    `  │   stalled:  ${formatPct(algoStalled, driftPairs.length)}  (algo ~0 but manual significant)`
-                );
-                console.log(`  │`);
-                console.log(`  │ Overall tau:`);
-                console.log(
-                    `  │   algorithm: shift=${algoShift.toFixed(1)}h  tau=${algoTau.toFixed(4)}h  (${algoDays.length} days)`
-                );
-                console.log(
-                    `  │   manual:    shift=${gtShift.toFixed(1)}h  tau=${gtTau.toFixed(4)}h  (${gtSorted.length} days)`
-                );
-                console.log(
-                    `  │   delta:     ${algoTau - gtTau >= 0 ? "+" : ""}${((algoTau - gtTau) * 60).toFixed(1)} min/day`
-                );
+                const stats: GroundTruthStats = {
+                    name: dataset.name,
+                    n: pairs.length,
+                    mean,
+                    median,
+                    p90,
+                    signedMean,
+                    directionAgree,
+                    directionDisagree,
+                    algoStalled,
+                    driftTotal: driftPairs.length,
+                    algoShift,
+                    algoTau,
+                    gtShift,
+                    gtTau,
+                    tauDeltaMin: (algoTau - gtTau) * 60,
+                    streakCount: streaks.length,
+                    maxStreakDays: streaks.length > 0 ? Math.max(...streaks.map((s) => s.days)) : 0,
+                    driftPenalty: penalty.totalPenalty,
+                    penaltyDays: penalty.penaltyDays,
+                    penaltyFraction: penalty.penaltyFraction,
+                    windowStats,
+                    streaks,
+                    algoDays: algoDays.length,
+                    gtDays: gtSorted.length,
+                };
 
-                if (windowStats.length > 1) {
-                    console.log(`  │`);
-                    console.log(`  │ Rolling ${WINDOW_SIZE}-day windows:`);
-                    for (const w of windowStats) {
-                        const tauDelta = (w.tauAlgo - w.tauManual) * 60;
-                        console.log(
-                            `  │   ${w.start} → ${w.end}:  err=${w.mean.toFixed(2)}h  bias=${w.signedMean >= 0 ? "+" : ""}${w.signedMean.toFixed(2)}h  tau Δ=${tauDelta >= 0 ? "+" : ""}${tauDelta.toFixed(1)}min  (n=${w.n})`
-                        );
-                    }
+                if (VERBOSE) {
+                    logVerbose(stats);
+                } else {
+                    logCompact(stats);
                 }
-
-                if (streaks.length > 0) {
-                    console.log(`  │`);
-                    console.log(`  │ Divergence streaks (>${DIVERGENCE_THRESH}h for 3+ days):`);
-                    for (const s of streaks) {
-                        const dir = s.avgSignedError >= 0 ? "algo later" : "algo earlier";
-                        console.log(
-                            `  │   ${s.start} → ${s.end}  (${s.days}d)  peak=${s.peakError.toFixed(1)}h  ${dir} by ${Math.abs(s.avgSignedError).toFixed(1)}h`
-                        );
-                    }
-                }
-
-                console.log(`  └────────────────────────────────────────`);
 
                 // Loose thresholds — tighten as algorithm improves
                 expect(mean).toBeLessThan(3.0);

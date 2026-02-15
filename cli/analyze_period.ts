@@ -8,7 +8,7 @@ import { parseSleepData } from "../src/data/loadLocalData.js";
 import { analyzeCircadian, _internals } from "../src/models/circadian/index.js";
 import type { SleepRecord } from "../src/api/types.js";
 
-const { classifyAnchor, sleepMidpointHour, evaluateWindow, gaussian } = _internals;
+const { classifyAnchor, evaluateWindow, gaussian } = _internals;
 
 const file = process.argv[2];
 const startDate = process.argv[3] || "2023-10-01";
@@ -51,8 +51,6 @@ const rangeRecords = records
 
 console.log(`\n--- All sleep records in range (${rangeRecords.length}) ---`);
 for (const r of rangeRecords) {
-    const startH = r.startTime.getHours() + r.startTime.getMinutes() / 60;
-    const endH = r.endTime.getHours() + r.endTime.getMinutes() / 60;
     const cls = classifyAnchor(r);
     const tierStr = cls ? `tier=${cls.tier} w=${cls.weight.toFixed(3)}` : "not-anchor";
     console.log(

@@ -49,12 +49,13 @@ src/
     __tests__/
       fixtures/
         synthetic.ts                Seeded synthetic SleepRecord generator (configurable tau, noise, gaps)
-        loadRealData.ts             Cached real data loader (skips gracefully if file missing)
+        loadRealData.ts             Generic real data loader: `loadRealData(fileName)` loads from test-data/, `hasRealData(fileName)` checks existence
         loadGroundTruth.ts          Ground-truth dataset loader (iterates test-data/ subdirs, loads sleep+overlay pairs)
+        driftPenalty.ts             Hard drift limit assertions + penalty scoring for prolonged extreme drift
       circadian.internals.test.ts   Unit tests for circadian internal helpers (classifyAnchor, regression, unwrapping)
       circadian.integration.test.ts Full pipeline tests (synthetic + real data regression)
-      circadian.scoring.test.ts   Scoring benchmarks (tau sweep, phase accuracy, noise/gap degradation, variable tau, naps, outliers, forecast, confidence)
-      circadian.groundtruth.test.ts Ground-truth overlay scoring (compares algorithm output vs manually curated overlays)
+      circadian.scoring.test.ts   Benchmark + correctness tests (tau sweep, phase accuracy, noise/gap/outlier degradation, overlay smoothness, drift limits)
+      circadian.groundtruth.test.ts Ground-truth overlay scoring (compact GTRESULT format by default, VERBOSE=1 for full diagnostics)
       overlayPath.test.ts           Overlay interpolation tests (linear interp, phase wrapping, extrapolation)
       calculateSleepScore.test.ts   Sleep score regression model tests
       lombScargle.test.ts           Periodogram peak detection tests

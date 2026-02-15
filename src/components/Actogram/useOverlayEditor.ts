@@ -37,9 +37,9 @@ export function useOverlayEditor(
     config: ActogramConfig,
     controlPoints: OverlayControlPoint[],
     setControlPoints: (
-        updater: OverlayControlPoint[] | ((prev: OverlayControlPoint[]) => OverlayControlPoint[]),
+        updater: OverlayControlPoint[] | ((prev: OverlayControlPoint[]) => OverlayControlPoint[])
     ) => void,
-    enabled: boolean,
+    enabled: boolean
 ) {
     const dragRef = useRef<DragState | null>(null);
 
@@ -76,7 +76,7 @@ export function useOverlayEditor(
 
             return { rowIdx, hour: normalizedHour, date };
         },
-        [getXScale, config.topMargin, config.rowHeight, rows, baseHours],
+        [getXScale, config.topMargin, config.rowHeight, rows, baseHours]
     );
 
     /** Convert a control point → CSS pixel position (using normalized hour for display) */
@@ -94,7 +94,7 @@ export function useOverlayEditor(
 
             return { x, y };
         },
-        [getXScale, rows, config.topMargin, config.rowHeight],
+        [getXScale, rows, config.topMargin, config.rowHeight]
     );
 
     /** Get the row Y center for a given date string */
@@ -104,7 +104,7 @@ export function useOverlayEditor(
             if (rowIdx < 0) return null;
             return config.topMargin + rowIdx * config.rowHeight + config.rowHeight / 2;
         },
-        [rows, config.topMargin, config.rowHeight],
+        [rows, config.topMargin, config.rowHeight]
     );
 
     // ── Hit-testing ─────────────────────────────────────────────────
@@ -130,7 +130,7 @@ export function useOverlayEditor(
             }
             return -1;
         },
-        [controlPoints, cpToPixel, config.leftMargin],
+        [controlPoints, cpToPixel, config.leftMargin]
     );
 
     // ── Event handlers ──────────────────────────────────────────────
@@ -171,13 +171,13 @@ export function useOverlayEditor(
                 midpointHour = unwrapMidpointForEditor(
                     midpointHour,
                     sorted[closestIdx]!.midpointHour,
-                    daysBetween(sorted[closestIdx]!.date, coord.date),
+                    daysBetween(sorted[closestIdx]!.date, coord.date)
                 );
             }
 
             setControlPoints((prev) => [...prev, { date: coord.date, midpointHour }]);
         },
-        [enabled, hitTestHandle, pixelToCoord, controlPoints, setControlPoints],
+        [enabled, hitTestHandle, pixelToCoord, controlPoints, setControlPoints]
     );
 
     const onMouseMove = useCallback(
@@ -188,7 +188,7 @@ export function useOverlayEditor(
             dragRef.current.previewY = e.clientY - rect.top;
             canvasRef.current?.dispatchEvent(new Event("editor-drag"));
         },
-        [enabled, canvasRef],
+        [enabled, canvasRef]
     );
 
     const onMouseUp = useCallback(
@@ -220,15 +220,13 @@ export function useOverlayEditor(
                 midpointHour = unwrapMidpointForEditor(
                     midpointHour,
                     sorted[closestIdx]!.midpointHour,
-                    daysBetween(sorted[closestIdx]!.date, coord.date),
+                    daysBetween(sorted[closestIdx]!.date, coord.date)
                 );
             }
 
-            setControlPoints((prev) =>
-                prev.map((cp, i) => (i === drag.idx ? { date: coord.date, midpointHour } : cp)),
-            );
+            setControlPoints((prev) => prev.map((cp, i) => (i === drag.idx ? { date: coord.date, midpointHour } : cp)));
         },
-        [enabled, pixelToCoord, controlPoints, setControlPoints],
+        [enabled, pixelToCoord, controlPoints, setControlPoints]
     );
 
     const onContextMenu = useCallback(
@@ -244,7 +242,7 @@ export function useOverlayEditor(
                 setControlPoints((prev) => prev.filter((_, i) => i !== hitIdx));
             }
         },
-        [enabled, hitTestHandle, setControlPoints],
+        [enabled, hitTestHandle, setControlPoints]
     );
 
     // ── Draw function ───────────────────────────────────────────────
@@ -258,7 +256,7 @@ export function useOverlayEditor(
      * rather than drawing a diagonal backwards across the canvas.
      */
     const drawEditor = useCallback(
-        (ctx: CanvasRenderingContext2D, xScale: (h: number) => number, _plotTop: number) => {
+        (ctx: CanvasRenderingContext2D, xScale: (h: number) => number) => {
             if (!enabled || controlPoints.length === 0) return;
 
             const sorted = [...controlPoints]
@@ -350,7 +348,7 @@ export function useOverlayEditor(
                 ctx.stroke();
             }
         },
-        [enabled, controlPoints, cpToPixel, dateToY, config.leftMargin],
+        [enabled, controlPoints, cpToPixel, dateToY, config.leftMargin]
     );
 
     return {
@@ -379,7 +377,7 @@ function drawWrappingSegment(
     ay: number,
     bNorm: number,
     by: number,
-    forward: boolean,
+    forward: boolean
 ) {
     // forward = drifting later (right edge → left edge)
     // !forward = drifting earlier (left edge → right edge)
