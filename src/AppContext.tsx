@@ -1,114 +1,16 @@
-import { createContext, useContext, useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { usePersistedState } from "./usePersistedState";
 import { useAuth } from "./auth/useAuth";
-import { useFitbitData, type FitbitDataState } from "./data/useFitbitData";
-import { analyzeCircadian, type CircadianAnalysis } from "./models/circadian";
+import { useFitbitData } from "./data/useFitbitData";
+import { analyzeCircadian } from "./models/circadian";
+import { AppContext } from "./AppContextDef";
+import type { ScheduleEntry, AppState } from "./AppContextDef";
 import type { ColorMode } from "./components/Actogram/useActogramRenderer";
-import type { SleepRecord } from "./api/types";
-
-// ── Schedule types ──────────────────────────────────────────────
-
-export interface ScheduleEntry {
-    id: string;
-    startTime: string; // "HH:mm"
-    endTime: string; // "HH:mm"
-    days: boolean[]; // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
-}
 
 /** Max canvas height in pixels (conservative cross-browser limit) */
 const MAX_CANVAS_HEIGHT = 32_768;
 /** Fixed margins in the actogram renderer (top + bottom) */
 const ACTOGRAM_MARGINS = 50;
-
-// ── Context shape ───────────────────────────────────────────────
-
-export interface AppState {
-    // Data
-    data: FitbitDataState;
-    auth: {
-        token: string | null;
-        userId: string | null;
-        loading: boolean;
-        error: string | null;
-        signIn: () => Promise<void>;
-        signOut: () => void;
-    };
-    hasClientId: boolean;
-
-    // Filtered / derived data
-    filteredRecords: SleepRecord[];
-    circadianAnalysis: CircadianAnalysis;
-    forecastDays: number;
-    setForecastDays: (v: number) => void;
-    forecastDisabled: boolean;
-    totalDays: number;
-    firstDateStr: string;
-    daySpan: number;
-    cumulativeShiftDays: number;
-    avgSleepPerDay: number;
-    avgTimeInBedPerDay: number;
-
-    // Visualization settings
-    doublePlot: boolean;
-    setDoublePlot: (v: boolean) => void;
-    showCircadian: boolean;
-    setShowCircadian: (v: boolean) => void;
-    showPeriodogram: boolean;
-    setShowPeriodogram: (v: boolean) => void;
-    colorMode: ColorMode;
-    setColorMode: (v: ColorMode) => void;
-    tauHours: number;
-    setTauHours: (v: number) => void;
-    rowHeight: number;
-    setRowHeight: (v: number) => void;
-    maxRowHeight: number;
-    effectiveRowHeight: number;
-
-    // Date filter
-    filterStart: number;
-    filterEnd: number;
-    handleFilterChange: (start: number, end: number) => void;
-
-    // Schedule overlay
-    showSchedule: boolean;
-    setShowSchedule: (v: boolean) => void;
-    showScheduleEditor: boolean;
-    setShowScheduleEditor: (v: boolean) => void;
-    scheduleEntries: ScheduleEntry[];
-    setScheduleEntries: (v: ScheduleEntry[] | ((prev: ScheduleEntry[]) => ScheduleEntry[])) => void;
-
-    // Actions
-    handleFetch: () => void;
-}
-
-const AppContext = createContext<AppState | null>(null);
-
-// ── Persisted state helper ───────────────────────────────────────
-
-export function usePersistedState<T>(key: string, defaultValue: T) {
-    const [value, setValue] = useState<T>(() => {
-        try {
-            const stored = localStorage.getItem(key);
-            return stored !== null ? (JSON.parse(stored) as T) : defaultValue;
-        } catch {
-            return defaultValue;
-        }
-    });
-    const setAndPersist = useCallback(
-        (v: T | ((prev: T) => T)) => {
-            setValue((prev) => {
-                const next = typeof v === "function" ? (v as (prev: T) => T)(prev) : v;
-                try {
-                    localStorage.setItem(key, JSON.stringify(next));
-                } catch {
-                    /* quota exceeded */
-                }
-                return next;
-            });
-        },
-        [key]
-    );
-    return [value, setAndPersist] as const;
-}
 
 // ── Provider ────────────────────────────────────────────────────
 
@@ -343,12 +245,4 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
     return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
-}
-
-// ── Consumer hook ───────────────────────────────────────────────
-
-export function useAppContext(): AppState {
-    const ctx = useContext(AppContext);
-    if (!ctx) throw new Error("useAppContext must be used inside <AppProvider>");
-    return ctx;
 }

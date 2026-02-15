@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useActogramRenderer } from "./useActogramRenderer";
 import { buildActogramRows, buildTauRows } from "../../models/actogramData";
-import { useAppContext } from "../../AppContext";
+import { useAppContext } from "../../useAppContext";
 
 export default function Actogram() {
     const {

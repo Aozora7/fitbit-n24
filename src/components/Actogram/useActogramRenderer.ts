@@ -3,7 +3,7 @@ import { scaleLinear } from "d3-scale";
 import type { ActogramRow } from "../../models/actogramData";
 import { type CircadianDay } from "../../models/circadian";
 import type { SleepLevelEntry } from "../../api/types";
-import type { ScheduleEntry } from "../../AppContext";
+import type { ScheduleEntry } from "../../AppContextDef";
 
 export type ColorMode = "stages" | "quality";
 

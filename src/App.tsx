@@ -1,4 +1,4 @@
-import { useAppContext } from "./AppContext";
+import { useAppContext } from "./useAppContext";
 import Header from "./components/Header";
 import DataToolbar from "./components/DataToolbar";
 import VisualizationControls from "./components/VisualizationControls";

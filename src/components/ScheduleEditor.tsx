@@ -1,4 +1,5 @@
-import { useAppContext, type ScheduleEntry } from "../AppContext";
+import { useAppContext } from "../useAppContext";
+import type { ScheduleEntry } from "../AppContextDef";
 
 const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 

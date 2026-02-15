@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAppContext } from "../AppContext";
+import { useAppContext } from "../useAppContext";
 
 export default function Header() {
     const {

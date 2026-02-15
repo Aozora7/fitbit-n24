@@ -1,4 +1,4 @@
-import { useAppContext } from "../AppContext";
+import { useAppContext } from "../useAppContext";
 
 export default function Legend() {
     const { colorMode, filteredRecords } = useAppContext();

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useAppContext } from "../AppContext";
+import { useAppContext } from "../useAppContext";
 import type { ColorMode } from "./Actogram/useActogramRenderer";
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {

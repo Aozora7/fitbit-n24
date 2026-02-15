@@ -19,7 +19,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 ## Architecture
 
 - **Client-only SPA** — no backend server, all data stays in browser
-- **Single context** — `AppContext.tsx` holds all state, derived values, and viz settings
+- **Single context** — `AppContextDef.ts` defines types + context object; `AppContext.tsx` contains only `AppProvider`; `useAppContext.ts` and `usePersistedState.ts` are in separate files — all split for Vite Fast Refresh compatibility
 - **Provider hierarchy** — `main.tsx`: `AuthProvider` → `AppProvider` → `App`
 - **Canvas rendering** — actogram and periodogram use HTML Canvas via `useEffect`, not React DOM elements
 - **Pure analysis functions** — `analyzeCircadian()` and `computeLombScargle()` are pure functions called via `useMemo`
@@ -29,7 +29,10 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 
 | File                                             | Purpose                                                                                  |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `src/AppContext.tsx`                             | Central state, all viz settings, derived computations                                    |
+| `src/AppContextDef.ts`                           | `ScheduleEntry`, `AppState` interfaces + `AppContext` object (no component, pure defs)   |
+| `src/AppContext.tsx`                             | `AppProvider` component only — all state, derived values, viz settings                   |
+| `src/useAppContext.ts`                           | `useAppContext()` consumer hook                                                           |
+| `src/usePersistedState.ts`                       | `usePersistedState<T>()` hook — localStorage-backed state (used throughout viz settings) |
 | `src/api/types.ts`                               | `RawSleepRecordV12` (API) and `SleepRecord` (internal) type definitions                  |
 | `src/data/useFitbitData.ts`                      | Data orchestrator: cache-first fetch, export, abort                                      |
 | `src/data/sleepCache.ts`                         | IndexedDB caching (database: `fitbit-n24-cache`)                                         |

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { scaleLinear } from "d3-scale";
-import { useAppContext } from "../AppContext";
+import { useAppContext } from "../useAppContext";
 import { computeLombScargle, type PeriodogramResult } from "../models/lombScargle";
 
 const COLORS = {

@@ -8,7 +8,10 @@ cli/
 src/
   main.tsx                          Entry point, provider hierarchy (AuthProvider -> AppProvider -> App)
   App.tsx                           Layout shell (no logic, just component composition)
-  AppContext.tsx                     Central state: viz settings, derived values, context provider
+  AppContextDef.ts                   ScheduleEntry + AppState interfaces, AppContext createContext object (no component)
+  AppContext.tsx                     AppProvider component only: all state, derived values, viz settings wired to context
+  useAppContext.ts                   useAppContext() consumer hook (reads AppContext)
+  usePersistedState.ts               usePersistedState<T>() hook — localStorage-backed state (viz.* keys)
   index.css                         Tailwind directives + global styles
 
   api/
