@@ -27,7 +27,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         anchorTierCounts: { A: 0, B: 0, C: 0 },
         tau: 24,
         dailyDrift: 0,
-        rSquared: 0
+        rSquared: 0,
     };
 
     if (records.length === 0) return empty;
@@ -54,8 +54,19 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
 
 // ─── Test internals barrel ─────────────────────────────────────────
 
-import { classifyAnchor, sleepMidpointHour, computeMedianSpacing, splitIntoSegments as _splitIntoSegments } from "./anchors";
-import { localPairwiseUnwrap, findSeedRegion, expandFromRegion, snapToNeighbors, unwrapAnchorsFromSeed } from "./unwrap";
+import {
+    classifyAnchor,
+    sleepMidpointHour,
+    computeMedianSpacing,
+    splitIntoSegments as _splitIntoSegments,
+} from "./anchors";
+import {
+    localPairwiseUnwrap,
+    findSeedRegion,
+    expandFromRegion,
+    snapToNeighbors,
+    unwrapAnchorsFromSeed,
+} from "./unwrap";
 import { weightedLinearRegression, robustWeightedRegression, gaussian, evaluateWindow } from "./regression";
 import { GAP_THRESHOLD_DAYS } from "./types";
 
@@ -74,5 +85,5 @@ export const _internals = {
     snapToNeighbors,
     unwrapAnchorsFromSeed,
     GAP_THRESHOLD_DAYS,
-    splitIntoSegments: _splitIntoSegments
+    splitIntoSegments: _splitIntoSegments,
 };

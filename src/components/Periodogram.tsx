@@ -214,7 +214,7 @@ export default function Periodogram() {
         const container = containerRef.current;
         if (!container) return;
 
-        const observer = new ResizeObserver(() => setResizeKey(k => k + 1));
+        const observer = new ResizeObserver(() => setResizeKey((k) => k + 1));
         observer.observe(container);
         return () => observer.disconnect();
     }, [showPeriodogram]);

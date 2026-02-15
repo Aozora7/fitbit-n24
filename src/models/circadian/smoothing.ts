@@ -1,12 +1,19 @@
 // Post-hoc overlay smoothing: 3-pass jump correction and forecast re-anchoring
 import type { Anchor, CircadianDay } from "./types";
-import { WINDOW_HALF, MIN_ANCHORS_PER_WINDOW, REGULARIZATION_HALF, SMOOTH_HALF, SMOOTH_SIGMA, SMOOTH_JUMP_THRESH } from "./types";
+import {
+    WINDOW_HALF,
+    MIN_ANCHORS_PER_WINDOW,
+    REGULARIZATION_HALF,
+    SMOOTH_HALF,
+    SMOOTH_SIGMA,
+    SMOOTH_JUMP_THRESH,
+} from "./types";
 import { gaussian, evaluateWindow, type WindowResult } from "./regression";
 
 export interface SmoothingContext {
     anchors: Anchor[];
-    days: CircadianDay[];           // mutated in-place
-    rawPredictedMid: number[];      // mutated in-place
+    days: CircadianDay[]; // mutated in-place
+    rawPredictedMid: number[]; // mutated in-place
     rawConfScore: number[];
     rawIsForecast: boolean[];
     rawSlopeConf: number[];
@@ -31,9 +38,20 @@ export interface SmoothingContext {
  */
 export function smoothOverlay(ctx: SmoothingContext): void {
     const {
-        anchors, days, rawPredictedMid, rawConfScore, rawIsForecast,
-        rawSlopeConf, rawHalfDur, segFirstDay, localDataDays, localTotalDays,
-        edgeResult, medianSpacing, globalFit, extraDays
+        anchors,
+        days,
+        rawPredictedMid,
+        rawConfScore,
+        rawIsForecast,
+        rawSlopeConf,
+        rawHalfDur,
+        segFirstDay,
+        localDataDays,
+        localTotalDays,
+        edgeResult,
+        medianSpacing,
+        globalFit,
+        extraDays,
     } = ctx;
 
     // Step 7: Jump-targeted overlay smoothing
@@ -210,9 +228,7 @@ export function smoothOverlay(ctx: SmoothingContext): void {
         const MAX_BRIDGE_RATE = 3; // max h/day interpolation rate (sanity check)
         const MIN_CONFIDENCE = 0.3; // only bridge days with sufficient confidence in their local drift
 
-        const normMids: number[] = days.map(d =>
-            (((d.nightStartHour + d.nightEndHour) / 2) % 24 + 24) % 24
-        );
+        const normMids: number[] = days.map((d) => ((((d.nightStartHour + d.nightEndHour) / 2) % 24) + 24) % 24);
 
         // Use local drift estimates for context-aware bridging.
         // This prevents false bridging when short entrained segments (tau=24.0)
@@ -266,14 +282,14 @@ export function smoothOverlay(ctx: SmoothingContext): void {
                         // Always interpolate forward (positive direction).
                         // The circadian clock doesn't run backward, so backward
                         // bridge direction from negative localDrift is always noise.
-                        const forwardDist = ((exitMid - entryMid) % 24 + 24) % 24;
+                        const forwardDist = (((exitMid - entryMid) % 24) + 24) % 24;
 
                         // Sanity: skip if interpolation rate is implausible
                         if (Math.abs(forwardDist) / span <= MAX_BRIDGE_RATE && forwardDist !== 0) {
                             for (let j = bRunStart; j < exitIdx; j++) {
                                 if (days[j]!.isForecast) continue;
                                 const t = (j - entryIdx) / span;
-                                const interpolatedMid = ((entryMid + t * forwardDist) % 24 + 24) % 24;
+                                const interpolatedMid = (((entryMid + t * forwardDist) % 24) + 24) % 24;
                                 const halfDur = rawHalfDur[j]!;
                                 days[j]!.nightStartHour = interpolatedMid - halfDur;
                                 days[j]!.nightEndHour = interpolatedMid + halfDur;
@@ -289,19 +305,23 @@ export function smoothOverlay(ctx: SmoothingContext): void {
     // Recompute forecast days to maintain continuity with the (now smoothed)
     // last data day.
     if (extraDays > 0) {
-        const lastDataMid = (((days[localDataDays]!.nightStartHour + days[localDataDays]!.nightEndHour) / 2) % 24 + 24) % 24;
-        const edgeSlopeConf = Math.min(1, edgeResult.pointsUsed / (medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10)) *
-                              (1 - Math.min(1, edgeResult.residualMAD / 4));
+        const lastDataMid =
+            ((((days[localDataDays]!.nightStartHour + days[localDataDays]!.nightEndHour) / 2) % 24) + 24) % 24;
+        const edgeSlopeConf =
+            Math.min(1, edgeResult.pointsUsed / (medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10)) *
+            (1 - Math.min(1, edgeResult.residualMAD / 4));
         // Use regional fit centered on last data day for fallback (not global, which may encode
         // a different regime like DSPD). Fall back to global only if regional is implausible.
         const forecastRegionalFit = evaluateWindow(anchors, segFirstDay + localDataDays, REGULARIZATION_HALF);
-        const useForecastRegional = forecastRegionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
-                                    forecastRegionalFit.slope >= -0.5 && forecastRegionalFit.slope <= 2.0;
+        const useForecastRegional =
+            forecastRegionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
+            forecastRegionalFit.slope >= -0.5 &&
+            forecastRegionalFit.slope <= 2.0;
         const forecastFallbackSlope = useForecastRegional ? forecastRegionalFit.slope : globalFit.slope;
         const edgeSlope = edgeSlopeConf * edgeResult.slope + (1 - edgeSlopeConf) * forecastFallbackSlope;
         for (let localD = localDataDays + 1; localD <= localTotalDays; localD++) {
             const dist = localD - localDataDays;
-            const forecastMid = ((lastDataMid + edgeSlope * dist) % 24 + 24) % 24;
+            const forecastMid = (((lastDataMid + edgeSlope * dist) % 24) + 24) % 24;
             const halfDur = rawHalfDur[localD]!;
             days[localD]!.nightStartHour = forecastMid - halfDur;
             days[localD]!.nightEndHour = forecastMid + halfDur;

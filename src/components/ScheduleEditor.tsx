@@ -16,9 +16,7 @@ export default function ScheduleEditor() {
     };
 
     const updateEntry = (id: string, updates: Partial<Omit<ScheduleEntry, "id">>) => {
-        setScheduleEntries((prev) =>
-            prev.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry))
-        );
+        setScheduleEntries((prev) => prev.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)));
     };
 
     const deleteEntry = (id: string) => {
@@ -49,10 +47,7 @@ export default function ScheduleEditor() {
             </div>
 
             {scheduleEntries.map((entry) => (
-                <div
-                    key={entry.id}
-                    className="flex flex-wrap items-center gap-3 rounded bg-slate-800 px-3 py-2"
-                >
+                <div key={entry.id} className="flex flex-wrap items-center gap-3 rounded bg-slate-800 px-3 py-2">
                     <input
                         type="time"
                         value={entry.startTime}
@@ -94,9 +89,7 @@ export default function ScheduleEditor() {
             ))}
 
             {scheduleEntries.length === 0 && (
-                <p className="text-sm text-gray-500 italic">
-                    No schedule entries. Click "Add Entry" to create one.
-                </p>
+                <p className="text-sm text-gray-500 italic">No schedule entries. Click "Add Entry" to create one.</p>
             )}
         </div>
     );

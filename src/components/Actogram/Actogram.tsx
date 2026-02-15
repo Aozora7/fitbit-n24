@@ -15,13 +15,16 @@ export default function Actogram() {
         forecastDays,
         forecastDisabled,
         showSchedule,
-        scheduleEntries
+        scheduleEntries,
     } = useAppContext();
 
     const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
 
     const rows = useMemo(
-        () => (tauHours !== 24 ? buildTauRows(filteredRecords, tauHours, effectiveForecastDays) : buildActogramRows(filteredRecords, effectiveForecastDays)),
+        () =>
+            tauHours !== 24
+                ? buildTauRows(filteredRecords, tauHours, effectiveForecastDays)
+                : buildActogramRows(filteredRecords, effectiveForecastDays),
         [filteredRecords, effectiveForecastDays, tauHours]
     );
 
@@ -33,7 +36,7 @@ export default function Actogram() {
         colorMode,
         tauHours,
         showSchedule,
-        scheduleEntries
+        scheduleEntries,
     });
 
     const [tooltip, setTooltip] = useState<{
@@ -61,7 +64,12 @@ export default function Actogram() {
 
     return (
         <div className="relative">
-            <canvas ref={canvasRef} className="w-full cursor-crosshair" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} />
+            <canvas
+                ref={canvasRef}
+                className="w-full cursor-crosshair"
+                onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
+            />
             {tooltip && (
                 <div
                     className="pointer-events-none fixed z-50 rounded bg-gray-900 px-3 py-2 text-xs text-gray-200 shadow-lg"

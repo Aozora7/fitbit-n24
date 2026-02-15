@@ -91,7 +91,9 @@ export function useFitbitData(): FitbitDataState {
 
                 // Phase 3: Final status
                 if (newRawRecords.length > 0) {
-                    setFetchProgress(`Done: ${rawRecordsRef.current.length} total records (${newRawRecords.length} new)`);
+                    setFetchProgress(
+                        `Done: ${rawRecordsRef.current.length} total records (${newRawRecords.length} new)`
+                    );
                 } else if (cachedRaw.length > 0) {
                     setFetchProgress(`Up to date: ${rawRecordsRef.current.length} records`);
                 } else {
@@ -109,7 +111,7 @@ export function useFitbitData(): FitbitDataState {
 
                 // Persist any newly fetched records to cache
                 if (newRawRecords.length > 0) {
-                    putRecords(userId, newRawRecords).catch(err =>
+                    putRecords(userId, newRawRecords).catch((err) =>
                         console.warn("[sleepCache] Failed to write new records:", err)
                     );
                 }
@@ -134,12 +136,15 @@ export function useFitbitData(): FitbitDataState {
         URL.revokeObjectURL(url);
     }, [records]);
 
-    const clearCache = useCallback(async (userId: string) => {
-        await clearUserCache(userId);
-        rawRecordsRef.current = [];
-        setRecords([]);
-        setFetchProgress("");
-    }, [setRecords]);
+    const clearCache = useCallback(
+        async (userId: string) => {
+            await clearUserCache(userId);
+            rawRecordsRef.current = [];
+            setRecords([]);
+            setFetchProgress("");
+        },
+        [setRecords]
+    );
 
     const reset = useCallback(() => {
         rawRecordsRef.current = [];

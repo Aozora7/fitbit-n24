@@ -6,7 +6,12 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
     return (
         <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-300">
             <div className="relative">
-                <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="peer sr-only" />
+                <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => onChange(e.target.checked)}
+                    className="peer sr-only"
+                />
                 <div className="h-5 w-9 rounded-full bg-slate-600 transition-colors peer-checked:bg-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-400 peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-slate-900" />
                 <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-slate-300 transition-transform peer-checked:translate-x-4 peer-checked:bg-white" />
             </div>
@@ -19,7 +24,7 @@ function SegmentedControl<T extends string | number>({
     value,
     options,
     onChange,
-    disabled = false
+    disabled = false,
 }: {
     value: T;
     options: { key: T; label: string }[];
@@ -27,7 +32,9 @@ function SegmentedControl<T extends string | number>({
     disabled?: boolean;
 }) {
     return (
-        <div className={`inline-flex overflow-hidden rounded-md border border-slate-600${disabled ? " opacity-40 pointer-events-none" : ""}`}>
+        <div
+            className={`inline-flex overflow-hidden rounded-md border border-slate-600${disabled ? " opacity-40 pointer-events-none" : ""}`}
+        >
             {options.map((opt, i) => (
                 <button
                     key={String(opt.key)}
@@ -62,7 +69,7 @@ function RowWidthControl() {
     const segments: { key: TauMode; label: string }[] = [
         { key: "24h", label: "24h" },
         ...(hasTau ? [{ key: "tau" as TauMode, label: `τ ${globalTau}` }] : []),
-        { key: "custom", label: "Custom" }
+        { key: "custom", label: "Custom" },
     ];
 
     const handleSegment = (key: TauMode) => {
@@ -86,7 +93,7 @@ function RowWidthControl() {
                     max={26}
                     step={0.01}
                     value={tauHours}
-                    onChange={e => {
+                    onChange={(e) => {
                         const v = parseFloat(e.target.value);
                         if (!isNaN(v) && v >= 23 && v <= 26) setTauHours(v);
                     }}
@@ -116,7 +123,7 @@ export default function VisualizationControls() {
         setRowHeight,
         forecastDays,
         setForecastDays,
-        forecastDisabled
+        forecastDisabled,
     } = useAppContext();
 
     const [collapsed, setCollapsed] = useState(false);
@@ -132,19 +139,27 @@ export default function VisualizationControls() {
                         <Toggle checked={showCircadian} onChange={setShowCircadian} label="Circadian overlay" />
                         <Toggle checked={showPeriodogram} onChange={setShowPeriodogram} label="Periodogram" />
                         <Toggle checked={showSchedule} onChange={setShowSchedule} label="Schedule overlay" />
-                        {showSchedule && <Toggle checked={showScheduleEditor} onChange={setShowScheduleEditor} label="Edit schedule" />}
+                        {showSchedule && (
+                            <Toggle
+                                checked={showScheduleEditor}
+                                onChange={setShowScheduleEditor}
+                                label="Edit schedule"
+                            />
+                        )}
 
                         {/* ── Divider ── */}
                         <div className="hidden h-6 border-l border-slate-700/50 lg:block" />
                         <div className="w-full border-t border-slate-700/50 lg:hidden" />
 
                         {/* ── Actogram ── */}
-                        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Actogram</span>
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                            Actogram
+                        </span>
                         <label className="flex items-center gap-2 text-sm text-gray-300">
                             Color
                             <select
                                 value={colorMode}
-                                onChange={e => setColorMode(e.target.value as ColorMode)}
+                                onChange={(e) => setColorMode(e.target.value as ColorMode)}
                                 className="rounded bg-slate-700 px-2 py-0.5 text-sm text-gray-300"
                             >
                                 <option value="stages">Sleep stages</option>
@@ -158,10 +173,12 @@ export default function VisualizationControls() {
                                 min={2}
                                 max={maxRowHeight}
                                 value={effectiveRowHeight}
-                                onChange={e => setRowHeight(Number(e.target.value))}
+                                onChange={(e) => setRowHeight(Number(e.target.value))}
                                 className="w-24 accent-indigo-500"
                             />
-                            <span className="min-w-[3ch] text-right font-mono text-xs text-slate-400">{effectiveRowHeight}px</span>
+                            <span className="min-w-[3ch] text-right font-mono text-xs text-slate-400">
+                                {effectiveRowHeight}px
+                            </span>
                         </label>
                         <RowWidthControl />
 
@@ -170,7 +187,9 @@ export default function VisualizationControls() {
                         <div className="w-full border-t border-slate-700/50 lg:hidden" />
 
                         {/* ── Forecast ── */}
-                        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Forecast</span>
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                            Forecast
+                        </span>
                         <div className="flex items-center gap-2 text-sm text-gray-300">
                             Days
                             <SegmentedControl
@@ -179,7 +198,7 @@ export default function VisualizationControls() {
                                     { key: 0, label: "Off" },
                                     { key: 2, label: "2" },
                                     { key: 7, label: "7" },
-                                    { key: 30, label: "30" }
+                                    { key: 30, label: "30" },
                                 ]}
                                 onChange={setForecastDays}
                                 disabled={forecastDisabled}
@@ -190,7 +209,7 @@ export default function VisualizationControls() {
 
                 {/* ── Collapse toggle ── */}
                 <button
-                    onClick={() => setCollapsed(c => !c)}
+                    onClick={() => setCollapsed((c) => !c)}
                     className={`flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors ${collapsed ? "w-full justify-center" : "ml-auto"}`}
                     title={collapsed ? "Show controls" : "Hide controls"}
                 >

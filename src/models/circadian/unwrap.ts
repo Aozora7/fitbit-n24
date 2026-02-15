@@ -19,12 +19,17 @@ export function localPairwiseUnwrap(midpoints: number[]): number[] {
 }
 
 /** Find the most consistent region to use as unwrapping seed */
-export function findSeedRegion(anchors: Anchor[]): { startIdx: number; endIdx: number; slope: number; intercept: number } {
+export function findSeedRegion(anchors: Anchor[]): {
+    startIdx: number;
+    endIdx: number;
+    slope: number;
+    intercept: number;
+} {
     const totalSpan = anchors[anchors.length - 1]!.dayNumber - anchors[0]!.dayNumber;
 
     // Short dataset fallback: use everything
     if (totalSpan < SEED_HALF * 2) {
-        const mids = localPairwiseUnwrap(anchors.map(a => a.midpointHour));
+        const mids = localPairwiseUnwrap(anchors.map((a) => a.midpointHour));
         const pts = anchors.map((a, i) => ({ x: a.dayNumber, y: mids[i]!, w: a.weight }));
         const fit = weightedLinearRegression(pts);
         return { startIdx: 0, endIdx: anchors.length - 1, slope: fit.slope, intercept: fit.intercept };
@@ -51,12 +56,16 @@ export function findSeedRegion(anchors: Anchor[]): { startIdx: number; endIdx: n
         if (indices.length < MIN_SEED_ANCHORS) continue;
 
         // Locally pairwise-unwrap a copy
-        const windowMids = localPairwiseUnwrap(indices.map(i => anchors[i]!.midpointHour));
-        const pts = indices.map((idx, j) => ({ x: anchors[idx]!.dayNumber, y: windowMids[j]!, w: anchors[idx]!.weight }));
+        const windowMids = localPairwiseUnwrap(indices.map((i) => anchors[i]!.midpointHour));
+        const pts = indices.map((idx, j) => ({
+            x: anchors[idx]!.dayNumber,
+            y: windowMids[j]!,
+            w: anchors[idx]!.weight,
+        }));
         const fit = weightedLinearRegression(pts);
 
         // Residual MAD
-        const residuals = pts.map(p => Math.abs(p.y - (fit.slope * p.x + fit.intercept)));
+        const residuals = pts.map((p) => Math.abs(p.y - (fit.slope * p.x + fit.intercept)));
         residuals.sort((a, b) => a - b);
         const mad = residuals[Math.floor(residuals.length / 2)]!;
 
@@ -82,7 +91,7 @@ export function findSeedRegion(anchors: Anchor[]): { startIdx: number; endIdx: n
                 startIdx: indices[0]!,
                 endIdx: indices[indices.length - 1]!,
                 slope: fit.slope,
-                intercept: fit.intercept
+                intercept: fit.intercept,
             };
         }
     }
@@ -91,7 +100,12 @@ export function findSeedRegion(anchors: Anchor[]): { startIdx: number; endIdx: n
 }
 
 /** Expand unwrapping from an already-unwrapped region outward */
-export function expandFromRegion(anchors: Anchor[], fromIdx: number, toIdx: number, direction: "forward" | "backward"): void {
+export function expandFromRegion(
+    anchors: Anchor[],
+    fromIdx: number,
+    toIdx: number,
+    direction: "forward" | "backward"
+): void {
     if (direction === "forward") {
         for (let i = toIdx + 1; i < anchors.length; i++) {
             snapToNeighbors(anchors, i, fromIdx, i - 1);
@@ -170,9 +184,7 @@ export function unwrapAnchorsFromSeed(anchors: Anchor[]): void {
     const seed = findSeedRegion(anchors);
 
     // Phase A: Pairwise-unwrap within the seed region
-    const seedMids = localPairwiseUnwrap(
-        anchors.slice(seed.startIdx, seed.endIdx + 1).map(a => a.midpointHour)
-    );
+    const seedMids = localPairwiseUnwrap(anchors.slice(seed.startIdx, seed.endIdx + 1).map((a) => a.midpointHour));
     for (let i = seed.startIdx; i <= seed.endIdx; i++) {
         anchors[i]!.midpointHour = seedMids[i - seed.startIdx]!;
     }

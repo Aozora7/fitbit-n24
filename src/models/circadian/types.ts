@@ -65,7 +65,7 @@ export interface SegmentResult {
     anchorCount: number;
     residuals: number[];
     segFirstDay: number; // global day number of segment's first record
-    segLastDay: number;  // global day number of segment's last data day
+    segLastDay: number; // global day number of segment's last data day
 }
 
 // ─── Constants ─────────────────────────────────────────────────────

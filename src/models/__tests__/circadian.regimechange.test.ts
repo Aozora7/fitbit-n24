@@ -49,11 +49,11 @@ describe("analyzeCircadian — entrained to N24 transitions", () => {
         const records = generateSyntheticRecords({
             tauSegments: [
                 { untilDay: 60, tau: 24.0 },
-                { untilDay: 90, tau: 25.0 }
+                { untilDay: 90, tau: 25.0 },
             ],
             days: 90,
             noise: 0.3,
-            seed: 5000
+            seed: 5000,
         });
 
         const result = analyzeCircadian(records);
@@ -69,8 +69,8 @@ describe("analyzeCircadian — entrained to N24 transitions", () => {
             const trueMidpoint = computeTrueMidpoint(i, {
                 tauSegments: [
                     { untilDay: 60, tau: 24.0 },
-                    { untilDay: 90, tau: 25.0 }
-                ]
+                    { untilDay: 90, tau: 25.0 },
+                ],
             });
             const overlayMid = overlayMidpoints[i]!;
             const error = circularDiff(overlayMid, trueMidpoint);
@@ -85,12 +85,12 @@ describe("analyzeCircadian — entrained to N24 transitions", () => {
 
         // Local tau estimates should correctly identify each phase
         // Entrained period (days 10-50): should be around 24.0h
-        const entrainedTaus = result.days.slice(10, 50).map(d => d.localTau);
+        const entrainedTaus = result.days.slice(10, 50).map((d) => d.localTau);
         const meanEntrainedTau = entrainedTaus.reduce((s, t) => s + t, 0) / entrainedTaus.length;
         expect(Math.abs(meanEntrainedTau - 24.0)).toBeLessThan(0.3);
 
         // N24 period (days 60-85): should be around 25.0h
-        const n24Taus = result.days.slice(60, 85).map(d => d.localTau);
+        const n24Taus = result.days.slice(60, 85).map((d) => d.localTau);
         const meanN24Tau = n24Taus.reduce((s, t) => s + t, 0) / n24Taus.length;
         expect(Math.abs(meanN24Tau - 25.0)).toBeLessThan(0.3);
     });
@@ -104,11 +104,11 @@ describe("analyzeCircadian — entrained to N24 transitions", () => {
         const records = generateSyntheticRecords({
             tauSegments: [
                 { untilDay: 60, tau: 25.0 },
-                { untilDay: 90, tau: 24.0 }
+                { untilDay: 90, tau: 24.0 },
             ],
             days: 90,
             noise: 0.3,
-            seed: 5001
+            seed: 5001,
         });
 
         const result = analyzeCircadian(records);
@@ -151,29 +151,29 @@ describe("analyzeCircadian — entrained to N24 transitions", () => {
             tauSegments: [
                 { untilDay: 45, tau: 25.0 },
                 { untilDay: 60, tau: 24.0 },
-                { untilDay: 105, tau: 25.0 }
+                { untilDay: 105, tau: 25.0 },
             ],
             days: 105,
             noise: 0.3,
-            seed: 5002
+            seed: 5002,
         });
 
         const result = analyzeCircadian(records);
 
         // First N24 segment: τ ≈ 25.0
-        const seg1Taus = result.days.slice(10, 35).map(d => d.localTau);
+        const seg1Taus = result.days.slice(10, 35).map((d) => d.localTau);
         const meanSeg1Tau = seg1Taus.reduce((s, t) => s + t, 0) / seg1Taus.length;
         expect(meanSeg1Tau).toBeGreaterThan(24.7);
 
         // Entrained segment: τ ≈ 24.0 (relaxed threshold due to known limitation)
         // The 42-day sliding window blends data from adjacent N24 periods,
         // causing local tau estimates to be ~24.5h instead of 24.0h.
-        const seg2Taus = result.days.slice(48, 57).map(d => d.localTau);
+        const seg2Taus = result.days.slice(48, 57).map((d) => d.localTau);
         const meanSeg2Tau = seg2Taus.reduce((s, t) => s + t, 0) / seg2Taus.length;
         expect(Math.abs(meanSeg2Tau - 24.0)).toBeLessThan(0.6); // Relaxed from 0.3
 
         // Second N24 segment: should recover to τ ≈ 25.0
-        const seg3Taus = result.days.slice(70, 95).map(d => d.localTau);
+        const seg3Taus = result.days.slice(70, 95).map((d) => d.localTau);
         const meanSeg3Tau = seg3Taus.reduce((s, t) => s + t, 0) / seg3Taus.length;
         expect(meanSeg3Tau).toBeGreaterThan(24.7);
 
@@ -199,33 +199,33 @@ describe("analyzeCircadian — multiple N24 regimes", () => {
                 { untilDay: 30, tau: 24.0 },
                 { untilDay: 60, tau: 24.5 },
                 { untilDay: 90, tau: 25.2 },
-                { untilDay: 120, tau: 24.0 }
+                { untilDay: 120, tau: 24.0 },
             ],
             days: 120,
             noise: 0.3,
-            seed: 5100
+            seed: 5100,
         });
 
         const result = analyzeCircadian(records);
 
         // Check each regime has appropriate local tau
         // Regime 1 (days 10-25): τ≈24.0
-        const regime1Taus = result.days.slice(10, 25).map(d => d.localTau);
+        const regime1Taus = result.days.slice(10, 25).map((d) => d.localTau);
         const meanRegime1Tau = regime1Taus.reduce((s, t) => s + t, 0) / regime1Taus.length;
         expect(Math.abs(meanRegime1Tau - 24.0)).toBeLessThan(0.3);
 
         // Regime 2 (days 35-50): τ≈24.5
-        const regime2Taus = result.days.slice(35, 50).map(d => d.localTau);
+        const regime2Taus = result.days.slice(35, 50).map((d) => d.localTau);
         const meanRegime2Tau = regime2Taus.reduce((s, t) => s + t, 0) / regime2Taus.length;
         expect(Math.abs(meanRegime2Tau - 24.5)).toBeLessThan(0.3);
 
         // Regime 3 (days 65-80): τ≈25.2
-        const regime3Taus = result.days.slice(65, 80).map(d => d.localTau);
+        const regime3Taus = result.days.slice(65, 80).map((d) => d.localTau);
         const meanRegime3Tau = regime3Taus.reduce((s, t) => s + t, 0) / regime3Taus.length;
         expect(Math.abs(meanRegime3Tau - 25.2)).toBeLessThan(0.3);
 
         // Regime 4 (days 95-110): τ≈24.0
-        const regime4Taus = result.days.slice(95, 110).map(d => d.localTau);
+        const regime4Taus = result.days.slice(95, 110).map((d) => d.localTau);
         const meanRegime4Tau = regime4Taus.reduce((s, t) => s + t, 0) / regime4Taus.length;
         expect(Math.abs(meanRegime4Tau - 24.0)).toBeLessThan(0.3);
     });
@@ -240,13 +240,13 @@ describe("analyzeCircadian — drift rate validation", () => {
         { tau: 24.5, name: "moderate N24" },
         { tau: 24.8, name: "strong N24" },
         { tau: 25.2, name: "very strong N24" },
-        { tau: 25.5, name: "extreme N24" }
+        { tau: 25.5, name: "extreme N24" },
     ])("correctly identifies $name (τ=$tau)", ({ tau }) => {
         const records = generateSyntheticRecords({
             tau,
             days: 60,
             noise: 0.3,
-            seed: 5200
+            seed: 5200,
         });
 
         const result = analyzeCircadian(records);
@@ -268,7 +268,7 @@ describe("analyzeCircadian — drift rate validation", () => {
             tau: 24.0,
             days: 60,
             noise: 0.3,
-            seed: 5201
+            seed: 5201,
         });
 
         const result = analyzeCircadian(records);
@@ -293,7 +293,7 @@ describe("analyzeCircadian — backward bridge validation", () => {
             tau: 24.0,
             days: 60,
             noise: 0.3,
-            seed: 5300
+            seed: 5300,
         });
 
         const entrainedResult = analyzeCircadian(entrainedRecords);
@@ -321,7 +321,7 @@ describe("analyzeCircadian — backward bridge validation", () => {
             tau: 25.0,
             days: 60,
             noise: 0.3,
-            seed: 5301
+            seed: 5301,
         });
 
         const n24Result = analyzeCircadian(n24Records);

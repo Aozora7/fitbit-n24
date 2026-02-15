@@ -13,11 +13,15 @@ import { smoothOverlay } from "./smoothing";
  * @param extraDays - Forecast days to append (only for the last segment)
  * @param globalFirstDateMs - Epoch of the first record across all segments (for consistent day numbering)
  */
-export function analyzeSegment(records: SleepRecord[], extraDays: number, globalFirstDateMs: number): SegmentResult | null {
+export function analyzeSegment(
+    records: SleepRecord[],
+    extraDays: number,
+    globalFirstDateMs: number
+): SegmentResult | null {
     if (records.length === 0) return null;
 
     // Step 1: Classify all records
-    const candidates = records.map(r => classifyAnchor(r)).filter((c): c is NonNullable<typeof c> => c !== null);
+    const candidates = records.map((r) => classifyAnchor(r)).filter((c): c is NonNullable<typeof c> => c !== null);
 
     if (candidates.length < 2) return null;
 
@@ -25,32 +29,37 @@ export function analyzeSegment(records: SleepRecord[], extraDays: number, global
     for (const c of candidates) tierCounts[c.tier]++;
 
     // Step 2: Check if Tier C needed (max A+B gap > 14 days)
-    const abDates = [...new Set(candidates.filter(c => c.tier !== "C").map(c => c.record.dateOfSleep))].sort();
+    const abDates = [...new Set(candidates.filter((c) => c.tier !== "C").map((c) => c.record.dateOfSleep))].sort();
 
     let maxGapAB = 0;
     for (let i = 1; i < abDates.length; i++) {
-        const gap = Math.round((new Date(abDates[i]! + "T00:00:00").getTime() - new Date(abDates[i - 1]! + "T00:00:00").getTime()) / 86_400_000);
+        const gap = Math.round(
+            (new Date(abDates[i]! + "T00:00:00").getTime() - new Date(abDates[i - 1]! + "T00:00:00").getTime()) /
+                86_400_000
+        );
         maxGapAB = Math.max(maxGapAB, gap);
     }
 
-    const activeCandidates = maxGapAB > 14 ? candidates : candidates.filter(c => c.tier !== "C");
+    const activeCandidates = maxGapAB > 14 ? candidates : candidates.filter((c) => c.tier !== "C");
 
     // Step 3: Build anchors sorted by date (using global epoch for day numbers)
     const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-    const activeIds = new Set(activeCandidates.map(c => c.record.logId));
-    const candMap = new Map(activeCandidates.map(c => [c.record.logId, c]));
+    const activeIds = new Set(activeCandidates.map((c) => c.record.logId));
+    const candMap = new Map(activeCandidates.map((c) => [c.record.logId, c]));
 
     let anchors: Anchor[] = [];
     for (const record of sorted) {
         if (!activeIds.has(record.logId)) continue;
         const c = candMap.get(record.logId)!;
         anchors.push({
-            dayNumber: Math.round((new Date(record.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000),
+            dayNumber: Math.round(
+                (new Date(record.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000
+            ),
             midpointHour: sleepMidpointHour(record, globalFirstDateMs),
             weight: c.weight,
             tier: c.tier,
             record,
-            date: record.dateOfSleep
+            date: record.dateOfSleep,
         });
     }
 
@@ -81,10 +90,14 @@ export function analyzeSegment(records: SleepRecord[], extraDays: number, global
     }
 
     // Step 6: Per-day sliding window
-    const segFirstDay = Math.round((new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000);
+    const segFirstDay = Math.round(
+        (new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000
+    );
     const segLastDay = Math.max(
         anchors[anchors.length - 1]!.dayNumber,
-        Math.round((new Date(sorted[sorted.length - 1]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000)
+        Math.round(
+            (new Date(sorted[sorted.length - 1]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000
+        )
     );
     const localDataDays = segLastDay - segFirstDay; // local index of last data day
     const localTotalDays = localDataDays + extraDays;
@@ -117,14 +130,21 @@ export function analyzeSegment(records: SleepRecord[], extraDays: number, global
     // Base confidence for the edge fit (used to compute decaying forecast confidence)
     const edgeExpected = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
     const edgeBaseConf =
-        0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected) + 0.3 * edgeResult.avgQuality + 0.3 * (1 - Math.min(1, edgeResult.residualMAD / 3));
+        0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected) +
+        0.3 * edgeResult.avgQuality +
+        0.3 * (1 - Math.min(1, edgeResult.residualMAD / 3));
 
     const firstDate = new Date(globalFirstDateMs);
     for (let localD = 0; localD <= localTotalDays; localD++) {
         const globalD = segFirstDay + localD;
         const dayDate = new Date(firstDate);
         dayDate.setDate(firstDate.getDate() + globalD);
-        const dateStr = dayDate.getFullYear() + "-" + String(dayDate.getMonth() + 1).padStart(2, "0") + "-" + String(dayDate.getDate()).padStart(2, "0");
+        const dateStr =
+            dayDate.getFullYear() +
+            "-" +
+            String(dayDate.getMonth() + 1).padStart(2, "0") +
+            "-" +
+            String(dayDate.getDate()).padStart(2, "0");
 
         const isForecast = localD > localDataDays;
         let result;
@@ -136,22 +156,25 @@ export function analyzeSegment(records: SleepRecord[], extraDays: number, global
         }
 
         const expectedPts = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
-        let slopeConf = Math.min(1, result.pointsUsed / expectedPts) *
-                        (1 - Math.min(1, result.residualMAD / 4));
+        let slopeConf = Math.min(1, result.pointsUsed / expectedPts) * (1 - Math.min(1, result.residualMAD / 4));
 
         // Regime change detection: when local slope differs significantly from
         // regional slope, trust the local window more to prevent blending across
         // regime boundaries (e.g., short entrained periods surrounded by N24).
         const regionalFit = evaluateWindow(anchors, globalD, REGULARIZATION_HALF);
-        const useRegional = regionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
-                            regionalFit.slope >= -0.5 && regionalFit.slope <= 2.0;
+        const useRegional =
+            regionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW && regionalFit.slope >= -0.5 && regionalFit.slope <= 2.0;
         const fallbackSlope = useRegional ? regionalFit.slope : globalFit.slope;
 
         // Detect potential regime change: if local and regional slopes differ by > 0.3h/day
         // and local window has sufficient anchors, increase confidence in local slope
         const slopeDiff = Math.abs(result.slope - fallbackSlope);
         const REGIME_CHANGE_THRESHOLD = 0.3; // 0.3h/day ≈ τ difference of 0.3h
-        if (slopeDiff > REGIME_CHANGE_THRESHOLD && result.pointsUsed >= MIN_ANCHORS_PER_WINDOW && result.residualMAD < 2.0) {
+        if (
+            slopeDiff > REGIME_CHANGE_THRESHOLD &&
+            result.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
+            result.residualMAD < 2.0
+        ) {
             // Boost local confidence to prevent blending across regime boundaries
             // Scale boost by how different the slopes are (more different = more boost)
             const boost = Math.min(0.4, (slopeDiff - REGIME_CHANGE_THRESHOLD) * 0.5);
@@ -222,19 +245,30 @@ export function analyzeSegment(records: SleepRecord[], extraDays: number, global
 
     // Post-hoc smoothing (3 passes + forecast recomputation)
     smoothOverlay({
-        anchors, days, rawPredictedMid, rawConfScore, rawIsForecast,
-        rawSlopeConf, rawHalfDur, segFirstDay, localDataDays, localTotalDays,
-        edgeResult, medianSpacing, globalFit, extraDays
+        anchors,
+        days,
+        rawPredictedMid,
+        rawConfScore,
+        rawIsForecast,
+        rawSlopeConf,
+        rawHalfDur,
+        segFirstDay,
+        localDataDays,
+        localTotalDays,
+        edgeResult,
+        medianSpacing,
+        globalFit,
+        extraDays,
     });
 
     return {
         days,
-        anchors: anchors.map(a => ({
+        anchors: anchors.map((a) => ({
             dayNumber: a.dayNumber,
             midpointHour: a.midpointHour,
             weight: a.weight,
             tier: a.tier,
-            date: a.date
+            date: a.date,
         })),
         tierCounts,
         anchorCount: anchors.length,

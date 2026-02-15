@@ -2,14 +2,18 @@
 import type { CircadianAnalysis, CircadianDay, AnchorPoint, SegmentResult } from "./types";
 import { weightedLinearRegression } from "./regression";
 
-export function mergeSegmentResults(
-    segments: SegmentResult[],
-    globalFirstDateMs: number,
-): CircadianAnalysis {
+export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs: number): CircadianAnalysis {
     const empty: CircadianAnalysis = {
-        globalTau: 24, globalDailyDrift: 0, days: [], anchors: [],
-        medianResidualHours: 0, anchorCount: 0, anchorTierCounts: { A: 0, B: 0, C: 0 },
-        tau: 24, dailyDrift: 0, rSquared: 0
+        globalTau: 24,
+        globalDailyDrift: 0,
+        days: [],
+        anchors: [],
+        medianResidualHours: 0,
+        anchorCount: 0,
+        anchorTierCounts: { A: 0, B: 0, C: 0 },
+        tau: 24,
+        dailyDrift: 0,
+        rSquared: 0,
     };
 
     if (segments.length === 0) return empty;
@@ -33,7 +37,12 @@ export function mergeSegmentResults(
             for (let d = prevEnd + 1; d < seg.segFirstDay; d++) {
                 const dayDate = new Date(firstDate);
                 dayDate.setDate(firstDate.getDate() + d);
-                const dateStr = dayDate.getFullYear() + "-" + String(dayDate.getMonth() + 1).padStart(2, "0") + "-" + String(dayDate.getDate()).padStart(2, "0");
+                const dateStr =
+                    dayDate.getFullYear() +
+                    "-" +
+                    String(dayDate.getMonth() + 1).padStart(2, "0") +
+                    "-" +
+                    String(dayDate.getDate()).padStart(2, "0");
                 allDays.push({
                     date: dateStr,
                     nightStartHour: 0,
@@ -109,6 +118,6 @@ export function mergeSegmentResults(
         anchorTierCounts: tierCounts,
         tau: globalTau,
         dailyDrift: globalDrift,
-        rSquared: 1 - Math.min(1, medResidual / 3)
+        rSquared: 1 - Math.min(1, medResidual / 3),
     };
 }

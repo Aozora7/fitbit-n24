@@ -6,11 +6,11 @@ import { AuthProvider } from "./auth/AuthProvider";
 import { AppProvider } from "./AppContext";
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <AuthProvider>
-      <AppProvider>
-        <App />
-      </AppProvider>
-    </AuthProvider>
-  </StrictMode>,
+    <StrictMode>
+        <AuthProvider>
+            <AppProvider>
+                <App />
+            </AppProvider>
+        </AuthProvider>
+    </StrictMode>
 );

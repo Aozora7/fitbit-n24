@@ -82,15 +82,15 @@ export function computeLombScargle(
         peakPeriod: 24,
         peakPower: 0,
         significanceThreshold: 0,
-        power24h: 0
+        power24h: 0,
     };
 
     if (anchors.length < 3) return empty;
 
     // Precompute anchor times in hours and determine data span
-    const times = anchors.map(a => a.dayNumber * 24 + a.midpointHour);
-    const weights = anchors.map(a => a.weight);
-    const dayNumbers = anchors.map(a => a.dayNumber);
+    const times = anchors.map((a) => a.dayNumber * 24 + a.midpointHour);
+    const weights = anchors.map((a) => a.weight);
+    const dayNumbers = anchors.map((a) => a.dayNumber);
     const firstDay = dayNumbers[0]!;
     const lastDay = dayNumbers[dayNumbers.length - 1]!;
     const spanDays = lastDay - firstDay;
@@ -112,7 +112,11 @@ export function computeLombScargle(
         const totalW = weights.reduce((s, w) => s + w, 0);
         windows.push({ indices: anchors.map((_, i) => i), totalW });
     } else {
-        for (let center = firstDay + WINDOW_DAYS / 2; center <= lastDay - WINDOW_DAYS / 2 + WINDOW_STEP; center += WINDOW_STEP) {
+        for (
+            let center = firstDay + WINDOW_DAYS / 2;
+            center <= lastDay - WINDOW_DAYS / 2 + WINDOW_STEP;
+            center += WINDOW_STEP
+        ) {
             const halfW = WINDOW_DAYS / 2;
             const indices: number[] = [];
             let totalW = 0;
@@ -139,7 +143,7 @@ export function computeLombScargle(
     const avgPower = new Array<number>(numTrials).fill(0);
 
     // Effective sample size for significance (use median window size)
-    const windowSizes = windows.map(w => {
+    const windowSizes = windows.map((w) => {
         let tw = 0;
         let tw2 = 0;
         for (const i of w.indices) {
@@ -247,7 +251,7 @@ export function computeLombScargle(
     displayMin = Math.max(minPeriod, displayMin);
     displayMax = Math.min(maxPeriod, displayMax);
 
-    const trimmedPoints = points.filter(p => p.period >= displayMin && p.period <= displayMax);
+    const trimmedPoints = points.filter((p) => p.period >= displayMin && p.period <= displayMax);
 
     return {
         points,
@@ -255,6 +259,6 @@ export function computeLombScargle(
         peakPeriod,
         peakPower,
         significanceThreshold,
-        power24h
+        power24h,
     };
 }

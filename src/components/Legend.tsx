@@ -2,7 +2,7 @@ import { useAppContext } from "../AppContext";
 
 export default function Legend() {
     const { colorMode, filteredRecords } = useAppContext();
-    const hasStages = filteredRecords.some(r => r.stageData);
+    const hasStages = filteredRecords.some((r) => r.stageData);
 
     return (
         <div className="mx-auto mt-4 flex max-w-5xl flex-wrap gap-6 text-xs text-gray-400">
@@ -17,7 +17,10 @@ export default function Legend() {
                         Fair
                     </div>
                     <div className="flex items-center gap-1.5">
-                        <span className="inline-block h-3 w-3 rounded-sm" style={{ background: "hsl(120, 75%, 45%)" }} />
+                        <span
+                            className="inline-block h-3 w-3 rounded-sm"
+                            style={{ background: "hsl(120, 75%, 45%)" }}
+                        />
                         Good
                     </div>
                 </>

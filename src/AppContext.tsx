@@ -24,7 +24,14 @@ const ACTOGRAM_MARGINS = 50;
 export interface AppState {
     // Data
     data: FitbitDataState;
-    auth: { token: string | null; userId: string | null; loading: boolean; error: string | null; signIn: () => Promise<void>; signOut: () => void };
+    auth: {
+        token: string | null;
+        userId: string | null;
+        loading: boolean;
+        error: string | null;
+        signIn: () => Promise<void>;
+        signOut: () => void;
+    };
     hasClientId: boolean;
 
     // Filtered / derived data
@@ -88,7 +95,7 @@ export function usePersistedState<T>(key: string, defaultValue: T) {
     });
     const setAndPersist = useCallback(
         (v: T | ((prev: T) => T)) => {
-            setValue(prev => {
+            setValue((prev) => {
                 const next = typeof v === "function" ? (v as (prev: T) => T)(prev) : v;
                 try {
                     localStorage.setItem(key, JSON.stringify(next));
@@ -134,7 +141,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!autoImportedRef.current && data.records.length === 0 && !data.loading) {
             autoImportedRef.current = true;
             fetch("/dev-data/auto-import.json")
-                .then(async res => {
+                .then(async (res) => {
                     if (res.ok && res.headers.get("content-type")?.includes("application/json")) {
                         const blob = await res.blob();
                         const file = new File([blob], "auto-import.json", { type: "application/json" });
@@ -173,13 +180,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const firstDateStr = useMemo(() => {
         if (data.records.length === 0) return "";
         const d = data.records[0]!.startTime;
-        return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        return (
+            d.getFullYear() +
+            "-" +
+            String(d.getMonth() + 1).padStart(2, "0") +
+            "-" +
+            String(d.getDate()).padStart(2, "0")
+        );
     }, [data.records]);
 
     // Keep filter end in sync with totalDays during progressive fetch
     const prevTotalDaysRef = useRef(0);
     if (totalDays !== prevTotalDaysRef.current) {
-        const wasFullRange = prevTotalDaysRef.current === 0 || (filterStart === 0 && filterEnd >= prevTotalDaysRef.current);
+        const wasFullRange =
+            prevTotalDaysRef.current === 0 || (filterStart === 0 && filterEnd >= prevTotalDaysRef.current);
         prevTotalDaysRef.current = totalDays;
         if (wasFullRange) {
             setFilterStart(0);
@@ -200,7 +214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         rangeEnd.setDate(rangeEnd.getDate() + filterEnd);
         const rangeEndMs = rangeEnd.getTime();
 
-        return data.records.filter(r => r.endTime.getTime() > rangeStartMs && r.startTime.getTime() < rangeEndMs);
+        return data.records.filter((r) => r.endTime.getTime() > rangeStartMs && r.startTime.getTime() < rangeEndMs);
     }, [data.records, filterStart, filterEnd, totalDays]);
 
     const handleFilterChange = useCallback((start: number, end: number) => {
@@ -213,7 +227,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const forecastDisabled = filterEnd < totalDays || !showCircadian;
     const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
 
-    const circadianAnalysis = useMemo(() => analyzeCircadian(filteredRecords, effectiveForecastDays), [filteredRecords, effectiveForecastDays]);
+    const circadianAnalysis = useMemo(
+        () => analyzeCircadian(filteredRecords, effectiveForecastDays),
+        [filteredRecords, effectiveForecastDays]
+    );
 
     const daySpan = useMemo(() => {
         if (filteredRecords.length === 0) return 0;
@@ -291,7 +308,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setShowScheduleEditor,
             scheduleEntries,
             setScheduleEntries,
-            handleFetch
+            handleFetch,
         }),
         [
             data,
@@ -321,7 +338,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             showSchedule,
             showScheduleEditor,
             scheduleEntries,
-            handleFetch
+            handleFetch,
         ]
     );
 

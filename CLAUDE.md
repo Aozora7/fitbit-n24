@@ -14,7 +14,7 @@ npm run test        # Run all tests once (vitest run)
 npm run test:watch  # Watch mode for TDD (vitest)
 ```
 
-No linter is configured.
+ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `npx eslint <file>` or `npx prettier --check <file>` manually; the `.hooks/typescript-quality.sh` hook runs both automatically on `.ts`/`.tsx` file saves.
 
 ## Architecture
 

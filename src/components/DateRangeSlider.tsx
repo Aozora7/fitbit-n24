@@ -58,7 +58,13 @@ export default function DateRangeSlider() {
             if (!firstDateStr) return "";
             const d = new Date(firstDateStr + "T00:00:00");
             d.setDate(d.getDate() + dayIdx);
-            return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+            return (
+                d.getFullYear() +
+                "-" +
+                String(d.getMonth() + 1).padStart(2, "0") +
+                "-" +
+                String(d.getDate()).padStart(2, "0")
+            );
         },
         [firstDateStr]
     );
@@ -88,7 +94,7 @@ export default function DateRangeSlider() {
         { days: 60, label: "60d" },
         { days: 90, label: "90d" },
         { days: 180, label: "180d" },
-        { days: 365, label: "1y" }
+        { days: 365, label: "1y" },
     ];
 
     const applyPreset = useCallback(
@@ -136,7 +142,8 @@ export default function DateRangeSlider() {
     // Check which preset is active (end at totalDays and start matches a preset)
     const activePreset =
         localEnd === totalDays
-            ? (presets.find(p => localStart === Math.max(0, totalDays - p.days))?.days ?? (localStart === 0 ? 0 : null)) // 0 means "All"
+            ? (presets.find((p) => localStart === Math.max(0, totalDays - p.days))?.days ??
+              (localStart === 0 ? 0 : null)) // 0 means "All"
             : null;
 
     return (
@@ -146,14 +153,16 @@ export default function DateRangeSlider() {
                 <span className={isFiltered ? "text-blue-400" : ""}>{dayLabel(localStart)}</span>
                 <div className="flex gap-1">
                     {presets
-                        .filter(p => p.days < totalDays)
-                        .map(p => (
+                        .filter((p) => p.days < totalDays)
+                        .map((p) => (
                             <button
                                 key={p.days}
                                 onClick={() => applyPreset(p.days)}
                                 disabled={disabled}
                                 className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
-                                    activePreset === p.days ? "bg-blue-600/30 text-blue-400" : "text-gray-500 hover:text-gray-300"
+                                    activePreset === p.days
+                                        ? "bg-blue-600/30 text-blue-400"
+                                        : "text-gray-500 hover:text-gray-300"
                                 }`}
                             >
                                 {p.label}
@@ -178,7 +187,10 @@ export default function DateRangeSlider() {
                 <div className="absolute top-2 right-0 left-0 h-1 rounded bg-gray-700" />
 
                 {/* Active range highlight */}
-                <div className="absolute top-2 h-1 rounded bg-blue-600/50" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
+                <div
+                    className="absolute top-2 h-1 rounded bg-blue-600/50"
+                    style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
+                />
 
                 {/* Start thumb */}
                 <input
@@ -213,7 +225,7 @@ export default function DateRangeSlider() {
 
             {/* Year marks – padded to match range input thumb offset */}
             <div className="relative mt-1 h-2" style={{ marginLeft: 8, marginRight: 8 }}>
-                {yearMarks().map(mark => {
+                {yearMarks().map((mark) => {
                     const position = (mark.dayIdx / totalDays) * 100;
                     return (
                         <div key={mark.dayIdx} className="absolute" style={{ left: `${position}%` }}>

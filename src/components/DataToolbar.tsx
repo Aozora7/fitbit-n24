@@ -28,7 +28,10 @@ export default function DataToolbar() {
                             >
                                 {data.fetching ? "Stop" : "Fetch from Fitbit"}
                             </button>
-                            <button onClick={auth.signOut} className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600">
+                            <button
+                                onClick={auth.signOut}
+                                className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                            >
                                 Sign out
                             </button>
                             {auth.userId && (
@@ -58,7 +61,10 @@ export default function DataToolbar() {
             </label>
 
             {data.records.length > 0 && (
-                <button onClick={data.exportToFile} className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600">
+                <button
+                    onClick={data.exportToFile}
+                    className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                >
                     Export JSON
                 </button>
             )}

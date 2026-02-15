@@ -28,7 +28,7 @@ const DEFAULT_CONFIG: ActogramConfig = {
     leftMargin: 80,
     topMargin: 30,
     rightMargin: 16,
-    bottomMargin: 20
+    bottomMargin: 20,
 };
 
 const COLORS = {
@@ -40,7 +40,7 @@ const COLORS = {
     // UI colors
     background: "#1e293b",
     grid: "#334155",
-    text: "#94a3b8"
+    text: "#94a3b8",
 };
 
 /** Map v1.2 stage level to color */
@@ -76,7 +76,11 @@ function formatHour(h: number): string {
     return String(hr).padStart(2, "0") + ":" + String(min).padStart(2, "0");
 }
 
-export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay[], config: Partial<ActogramConfig> = {}) {
+export function useActogramRenderer(
+    rows: ActogramRow[],
+    circadian: CircadianDay[],
+    config: Partial<ActogramConfig> = {}
+) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const cfg = { ...DEFAULT_CONFIG, ...config };
     const tauMode = cfg.tauHours !== 24;
@@ -106,7 +110,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
 
             // Find block at this hour
             // In double-plot mode, the right half shows the next day's data (rows are newest-first, so next day is rowIdx-1)
-            const blocksToCheck: { block: typeof row.blocks[0]; offset: number; sourceRow: typeof row }[] = [];
+            const blocksToCheck: { block: (typeof row.blocks)[0]; offset: number; sourceRow: typeof row }[] = [];
             for (const block of row.blocks) {
                 blocksToCheck.push({ block, offset: 0, sourceRow: row });
             }
@@ -124,7 +128,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                         start: block.record.startTime.toLocaleTimeString(),
                         end: block.record.endTime.toLocaleTimeString(),
                         duration: block.record.durationHours.toFixed(1) + "h",
-                        efficiency: block.record.efficiency + "%"
+                        efficiency: block.record.efficiency + "%",
                     };
                     if (block.record.stages) {
                         const s = block.record.stages;
@@ -160,21 +164,22 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                             "circadian night": formatHour(nightStartAbsH) + " – " + formatHour(nightEndAbsH),
                             "local τ": cd.localTau.toFixed(2) + "h",
                             confidence: cd.confidence,
-                            ...(cd.isForecast ? { type: "predicted" } : {})
+                            ...(cd.isForecast ? { type: "predicted" } : {}),
                         };
                     }
                 } else {
                     let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
                     let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
                     const h = ((hour % 24) + 24) % 24;
-                    const inOverlay = nightEnd < nightStart ? h >= nightStart || h <= nightEnd : h >= nightStart && h <= nightEnd;
+                    const inOverlay =
+                        nightEnd < nightStart ? h >= nightStart || h <= nightEnd : h >= nightStart && h <= nightEnd;
                     if (inOverlay) {
                         return {
                             date: row.date,
                             "circadian night": formatHour(nightStart) + " – " + formatHour(nightEnd),
                             "local τ": cd.localTau.toFixed(2) + "h",
                             confidence: cd.confidence,
-                            ...(cd.isForecast ? { type: "predicted" } : {})
+                            ...(cd.isForecast ? { type: "predicted" } : {}),
                         };
                     }
                 }
@@ -257,17 +262,16 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                 const y = plotTop + i * cfg.rowHeight;
 
                 // Alpha based on confidence score
-                const alpha = "confidenceScore" in cd ? 0.1 + (cd as { confidenceScore: number }).confidenceScore * 0.25 : 0.25;
-                ctx.fillStyle = cd.isForecast
-                    ? `rgba(251, 191, 36, ${alpha})`
-                    : `rgba(168, 85, 247, ${alpha})`;
+                const alpha =
+                    "confidenceScore" in cd ? 0.1 + (cd as { confidenceScore: number }).confidenceScore * 0.25 : 0.25;
+                ctx.fillStyle = cd.isForecast ? `rgba(251, 191, 36, ${alpha})` : `rgba(168, 85, 247, ${alpha})`;
 
                 if (tauMode && row.startMs != null) {
                     // Tau mode: position night hours relative to row's start time
                     const nightStartAbsH = ((cd.nightStartHour % 24) + 24) % 24;
                     const nightEndAbsH = ((cd.nightEndHour % 24) + 24) % 24;
                     const rowStartAbsH = (row.startMs % 86_400_000) / 3_600_000;
-                    const nightDur = ((nightEndAbsH - nightStartAbsH) % 24 + 24) % 24;
+                    const nightDur = (((nightEndAbsH - nightStartAbsH) % 24) + 24) % 24;
 
                     let ns = nightStartAbsH - rowStartAbsH;
                     while (ns < -12) ns += 24;
@@ -344,8 +348,8 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
 
                             const startParts = entry.startTime.split(":");
                             const endParts = entry.endTime.split(":");
-                            const sH = (parseInt(startParts[0] ?? "0", 10)) + (parseInt(startParts[1] ?? "0", 10)) / 60;
-                            const eH = (parseInt(endParts[0] ?? "0", 10)) + (parseInt(endParts[1] ?? "0", 10)) / 60;
+                            const sH = parseInt(startParts[0] ?? "0", 10) + parseInt(startParts[1] ?? "0", 10) / 60;
+                            const eH = parseInt(endParts[0] ?? "0", 10) + parseInt(endParts[1] ?? "0", 10) / 60;
 
                             const drawAbsBlock = (absStart: number, absEnd: number) => {
                                 const iStart = Math.max(absStart, rowStartMs);
@@ -383,8 +387,8 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
 
                         const startParts = entry.startTime.split(":");
                         const endParts = entry.endTime.split(":");
-                        const startHour = (parseInt(startParts[0] ?? "0", 10)) + (parseInt(startParts[1] ?? "0", 10)) / 60;
-                        const endHour = (parseInt(endParts[0] ?? "0", 10)) + (parseInt(endParts[1] ?? "0", 10)) / 60;
+                        const startHour = parseInt(startParts[0] ?? "0", 10) + parseInt(startParts[1] ?? "0", 10) / 60;
+                        const endHour = parseInt(endParts[0] ?? "0", 10) + parseInt(endParts[1] ?? "0", 10) / 60;
 
                         const drawSegment = (s: number, e: number, o: number) => {
                             const start = Math.max(0, s) + o;
@@ -426,7 +430,7 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
             const y = plotTop + i * cfg.rowHeight;
 
             // Helper to draw a block at a given hour offset on this row's y position
-            const drawBlockAt = (block: typeof row.blocks[0], hourOffset: number, sourceRow: ActogramRow) => {
+            const drawBlockAt = (block: (typeof row.blocks)[0], hourOffset: number, sourceRow: ActogramRow) => {
                 const bStart = block.startHour + hourOffset;
                 const bEnd = block.endHour + hourOffset;
                 const blockPixelWidth = xScale(bEnd) - xScale(bStart);
@@ -435,7 +439,19 @@ export function useActogramRenderer(rows: ActogramRow[], circadian: CircadianDay
                     ctx.fillStyle = qualityColor(block.record.sleepScore);
                     ctx.fillRect(xScale(bStart), y, Math.max(blockPixelWidth, 1), cfg.rowHeight - 0.5);
                 } else if (block.record.stageData && blockPixelWidth > 5) {
-                    drawStageBlock(ctx, xScale, block.record.stageData, block.record.startTime, sourceRow.date, bStart, bEnd, y, cfg.rowHeight, hourOffset, sourceRow.startMs);
+                    drawStageBlock(
+                        ctx,
+                        xScale,
+                        block.record.stageData,
+                        block.record.startTime,
+                        sourceRow.date,
+                        bStart,
+                        bEnd,
+                        y,
+                        cfg.rowHeight,
+                        hourOffset,
+                        sourceRow.startMs
+                    );
                 } else {
                     ctx.fillStyle = COLORS.light;
                     ctx.fillRect(xScale(bStart), y, Math.max(blockPixelWidth, 1), cfg.rowHeight - 0.5);
@@ -542,4 +558,3 @@ function drawStageBlock(
         ctx.fillRect(xScale(xStart), y, Math.max(xScale(xEnd) - xScale(xStart), 0.5), rowHeight - 0.5);
     }
 }
-

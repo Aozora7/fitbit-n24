@@ -4,8 +4,8 @@ import { analyzeCircadian } from "../src/models/circadian.js";
 
 const file = process.argv[2];
 if (!file) {
-  console.error("Usage: npx tsx cli/analyze.ts <sleep-data.json>");
-  process.exit(1);
+    console.error("Usage: npx tsx cli/analyze.ts <sleep-data.json>");
+    process.exit(1);
 }
 
 const data: unknown = JSON.parse(readFileSync(file, "utf-8"));
