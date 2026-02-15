@@ -3,6 +3,7 @@ import type { FitbitDataState } from "./data/useFitbitData";
 import type { CircadianAnalysis } from "./models/circadian";
 import type { ColorMode } from "./components/Actogram/useActogramRenderer";
 import type { SleepRecord } from "./api/types";
+import type { OverlayControlPoint, OverlayDay } from "./models/overlayPath";
 
 // ── Schedule types ───────────────────────────────────────────────
 
@@ -69,6 +70,17 @@ export interface AppState {
     setShowScheduleEditor: (v: boolean) => void;
     scheduleEntries: ScheduleEntry[];
     setScheduleEntries: (v: ScheduleEntry[] | ((prev: ScheduleEntry[]) => ScheduleEntry[])) => void;
+
+    // Overlay editor
+    overlayEditMode: boolean;
+    setOverlayEditMode: (v: boolean) => void;
+    overlayControlPoints: OverlayControlPoint[];
+    setOverlayControlPoints: (
+        v: OverlayControlPoint[] | ((prev: OverlayControlPoint[]) => OverlayControlPoint[]),
+    ) => void;
+    overlaySleepWindow: number;
+    setOverlaySleepWindow: (v: number) => void;
+    manualOverlayDays: OverlayDay[];
 
     // Actions
     handleFetch: () => void;

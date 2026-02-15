@@ -4,6 +4,7 @@ import type { ActogramRow } from "../../models/actogramData";
 import { type CircadianDay } from "../../models/circadian";
 import type { SleepLevelEntry } from "../../api/types";
 import type { ScheduleEntry } from "../../AppContextDef";
+import type { OverlayDay } from "../../models/overlayPath";
 
 export type ColorMode = "stages" | "quality";
 
@@ -79,9 +80,16 @@ function formatHour(h: number): string {
 export function useActogramRenderer(
     rows: ActogramRow[],
     circadian: CircadianDay[],
-    config: Partial<ActogramConfig> = {}
+    config: Partial<ActogramConfig> = {},
+    options: {
+        manualOverlayDays?: OverlayDay[];
+        overlayEditMode?: boolean;
+        editorDraw?: (ctx: CanvasRenderingContext2D, xScale: (h: number) => number, plotTop: number) => void;
+        canvasRef?: React.RefObject<HTMLCanvasElement | null>;
+    } = {},
 ) {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const internalRef = useRef<HTMLCanvasElement>(null);
+    const canvasRef = options.canvasRef ?? internalRef;
     const cfg = { ...DEFAULT_CONFIG, ...config };
     const tauMode = cfg.tauHours !== 24;
     const baseHours = tauMode ? cfg.tauHours : 24;
@@ -190,6 +198,9 @@ export function useActogramRenderer(
         [rows, circadian, cfg, hoursPerRow]
     );
 
+    // Store the render function in a ref so the editor-drag listener can call it
+    const renderRef = useRef<() => void>(() => {});
+
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas || rows.length === 0) return;
@@ -246,7 +257,75 @@ export function useActogramRenderer(
 
         // Draw circadian overlay
         // In double-plot mode, right half shows the next day's overlay (rows are newest-first, so next day is i-1)
-        if (circadian.length > 0) {
+        const hasManualOverlay = (options.manualOverlayDays?.length ?? 0) > 0;
+
+        // When manual overlay exists AND edit mode is on, draw algorithm overlay dimmed as reference
+        if (hasManualOverlay && options.overlayEditMode && circadian.length > 0) {
+            const circadianMapDim = new Map<string, CircadianDay>();
+            for (const cd of circadian) circadianMapDim.set(cd.date, cd);
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i]!;
+                const rowDateKey = row.date.slice(0, 10);
+                const cd = circadianMapDim.get(rowDateKey);
+                if (!cd || cd.isGap) continue;
+                const y = plotTop + i * cfg.rowHeight;
+                ctx.fillStyle = `rgba(168, 85, 247, 0.05)`;
+                if (!tauMode) {
+                    let nightStart = ((cd.nightStartHour % 24) + 24) % 24;
+                    let nightEnd = ((cd.nightEndHour % 24) + 24) % 24;
+                    if (nightEnd < nightStart) {
+                        ctx.fillRect(xScale(nightStart), y, xScale(24) - xScale(nightStart), cfg.rowHeight);
+                        ctx.fillRect(xScale(0), y, xScale(nightEnd) - xScale(0), cfg.rowHeight);
+                    } else {
+                        ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
+                    }
+                    if (cfg.doublePlot) {
+                        nightStart += 24;
+                        nightEnd += 24;
+                        if (nightEnd < nightStart) {
+                            ctx.fillRect(xScale(nightStart), y, xScale(48) - xScale(nightStart), cfg.rowHeight);
+                            ctx.fillRect(xScale(24), y, xScale(nightEnd) - xScale(24), cfg.rowHeight);
+                        } else {
+                            ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw manual overlay (cyan) if present, otherwise draw algorithm overlay (purple)
+        if (hasManualOverlay) {
+            const manualMap = new Map<string, OverlayDay>();
+            for (const od of options.manualOverlayDays!) manualMap.set(od.date, od);
+
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i]!;
+                const rowDateKey = row.date.slice(0, 10);
+                const od = manualMap.get(rowDateKey);
+                if (!od) continue;
+                const y = plotTop + i * cfg.rowHeight;
+                ctx.fillStyle = "rgba(6, 182, 212, 0.3)"; // cyan
+
+                let nightStart = ((od.nightStartHour % 24) + 24) % 24;
+                let nightEnd = ((od.nightEndHour % 24) + 24) % 24;
+                if (nightEnd < nightStart) {
+                    ctx.fillRect(xScale(nightStart), y, xScale(24) - xScale(nightStart), cfg.rowHeight);
+                    ctx.fillRect(xScale(0), y, xScale(nightEnd) - xScale(0), cfg.rowHeight);
+                } else {
+                    ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
+                }
+                if (cfg.doublePlot) {
+                    nightStart += 24;
+                    nightEnd += 24;
+                    if (nightEnd < nightStart) {
+                        ctx.fillRect(xScale(nightStart), y, xScale(48) - xScale(nightStart), cfg.rowHeight);
+                        ctx.fillRect(xScale(24), y, xScale(nightEnd) - xScale(24), cfg.rowHeight);
+                    } else {
+                        ctx.fillRect(xScale(nightStart), y, xScale(nightEnd) - xScale(nightStart), cfg.rowHeight);
+                    }
+                }
+            }
+        } else if (circadian.length > 0) {
             const circadianMap = new Map<string, CircadianDay>();
             for (const cd of circadian) {
                 circadianMap.set(cd.date, cd);
@@ -482,7 +561,35 @@ export function useActogramRenderer(
             const y = plotTop + i * cfg.rowHeight + cfg.rowHeight;
             ctx.fillText(row.date, plotLeft - 6, y);
         }
-    }, [rows, circadian, cfg, hoursPerRow]);
+
+        // Editor overlay (control points + path line)
+        if (options.editorDraw) {
+            options.editorDraw(ctx, xScale, plotTop);
+        }
+
+        // Store a lightweight repaint function for drag updates
+        renderRef.current = () => {
+            if (!options.editorDraw) return;
+            // Redraw only the editor layer by clearing and re-rendering everything
+            // (canvas requires full redraw — no layer isolation)
+            canvas.dispatchEvent(new Event("full-redraw"));
+        };
+
+        // Listen for drag events from the editor
+        const handleEditorDrag = () => {
+            // Full redraw is needed since canvas can't repaint a single layer.
+            // We re-run the effect by calling the function inline — but since
+            // useEffect can't re-trigger itself, we instead do a direct
+            // repaint of just the editor layer on top.
+            // Clear the area below sleep blocks (editor layer draws last)
+            if (options.editorDraw) {
+                // For drag previews, just redraw editor on top (handles overlap is OK for brief drag)
+                options.editorDraw(ctx, xScale, plotTop);
+            }
+        };
+        canvas.addEventListener("editor-drag", handleEditorDrag);
+        return () => canvas.removeEventListener("editor-drag", handleEditorDrag);
+    }, [rows, circadian, cfg, hoursPerRow, options.manualOverlayDays, options.overlayEditMode, options.editorDraw]);
 
     return { canvasRef, getTooltipInfo };
 }

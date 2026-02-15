@@ -34,6 +34,7 @@ src/
 
   models/
     actogramData.ts                 Actogram row building (buildActogramRows, buildTauRows)
+    overlayPath.ts                  Manual overlay types (OverlayControlPoint, OverlayDay) + interpolateOverlay()
     circadian/
       index.ts                     analyzeCircadian() orchestrator + public type re-exports + _internals barrel
       types.ts                     All interfaces (CircadianDay, AnchorPoint, etc.), type aliases, constants
@@ -49,9 +50,12 @@ src/
       fixtures/
         synthetic.ts                Seeded synthetic SleepRecord generator (configurable tau, noise, gaps)
         loadRealData.ts             Cached real data loader (skips gracefully if file missing)
+        loadGroundTruth.ts          Ground-truth dataset loader (iterates test-data/ subdirs, loads sleep+overlay pairs)
       circadian.internals.test.ts   Unit tests for circadian internal helpers (classifyAnchor, regression, unwrapping)
       circadian.integration.test.ts Full pipeline tests (synthetic + real data regression)
       circadian.scoring.test.ts   Scoring benchmarks (tau sweep, phase accuracy, noise/gap degradation, variable tau, naps, outliers, forecast, confidence)
+      circadian.groundtruth.test.ts Ground-truth overlay scoring (compares algorithm output vs manually curated overlays)
+      overlayPath.test.ts           Overlay interpolation tests (linear interp, phase wrapping, extrapolation)
       calculateSleepScore.test.ts   Sleep score regression model tests
       lombScargle.test.ts           Periodogram peak detection tests
       actogramData.test.ts          Row building, midnight crossings, tau-mode tests
@@ -65,6 +69,7 @@ src/
     Legend.tsx                       Color legend (stages mode or quality gradient mode)
     ScheduleEditor.tsx               Weekly schedule editor (time inputs, day-of-week toggles)
     Actogram/
-      Actogram.tsx                  Main actogram component (canvas + tooltip overlay)
-      useActogramRenderer.ts        Canvas rendering engine (sleep blocks, circadian overlay, schedule overlay, grid, labels)
+      Actogram.tsx                  Main actogram component (canvas + tooltip overlay + editor wiring)
+      useActogramRenderer.ts        Canvas rendering engine (sleep blocks, circadian overlay, manual overlay, schedule overlay, grid, labels, editor layer)
+      useOverlayEditor.ts           Interactive overlay editor hook (click/drag/delete control points, gutter handles, path line)
 ```

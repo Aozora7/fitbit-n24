@@ -1,17 +1,32 @@
 import { useRef, useCallback } from "react";
 import { useAppContext } from "../useAppContext";
+import type { OverlayControlPoint } from "../models/overlayPath";
 
 export default function DataToolbar() {
-    const { data, auth, hasClientId, handleFetch } = useAppContext();
+    const { data, auth, hasClientId, handleFetch, overlayControlPoints, setOverlayControlPoints, manualOverlayDays } =
+        useAppContext();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = useCallback(
-        (e: React.ChangeEvent<HTMLInputElement>) => {
+        async (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
-            if (file) data.importFromFile(file);
+            if (!file) return;
+
+            // Read the file to check for overlay before passing to importFromFile
+            const text = await file.text();
+            const json = JSON.parse(text);
+            if (json.controlPoints && Array.isArray(json.controlPoints)) {
+                setOverlayControlPoints(json.controlPoints as OverlayControlPoint[]);
+            }
+
+            // Re-create the file blob for importFromFile (it reads the file independently)
+            const blob = new Blob([text], { type: "application/json" });
+            const reimported = new File([blob], file.name, { type: file.type });
+            await data.importFromFile(reimported);
+
             if (fileInputRef.current) fileInputRef.current.value = "";
         },
-        [data.importFromFile]
+        [data.importFromFile, setOverlayControlPoints],
     );
 
     return (
@@ -66,6 +81,29 @@ export default function DataToolbar() {
                     className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
                 >
                     Export JSON
+                </button>
+            )}
+
+            {data.records.length > 0 && overlayControlPoints.length > 0 && (
+                <button
+                    onClick={() => {
+                        const exportData = {
+                            sleep: data.records,
+                            overlay: manualOverlayDays,
+                            controlPoints: overlayControlPoints,
+                        };
+                        const json = JSON.stringify(exportData, null, 2);
+                        const blob = new Blob([json], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `fitbit-sleep-overlay-${new Date().toISOString().slice(0, 10)}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    }}
+                    className="rounded bg-cyan-800 px-3 py-1.5 text-sm text-gray-200 hover:bg-cyan-700"
+                >
+                    Export with overlay
                 </button>
             )}
 

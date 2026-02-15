@@ -3,6 +3,8 @@ import { usePersistedState } from "./usePersistedState";
 import { useAuth } from "./auth/useAuth";
 import { useFitbitData } from "./data/useFitbitData";
 import { analyzeCircadian } from "./models/circadian";
+import { interpolateOverlay } from "./models/overlayPath";
+import type { OverlayControlPoint } from "./models/overlayPath";
 import { AppContext } from "./AppContextDef";
 import type { ScheduleEntry, AppState } from "./AppContextDef";
 import type { ColorMode } from "./components/Actogram/useActogramRenderer";
@@ -36,6 +38,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setShowScheduleEditor(true);
         }
     }, [showSchedule]);
+
+    // Overlay editor (persisted to localStorage)
+    const [overlayEditMode, setOverlayEditMode] = usePersistedState("viz.overlayEditMode", false);
+    const [overlayControlPoints, setOverlayControlPoints] = usePersistedState<OverlayControlPoint[]>(
+        "viz.overlayControlPoints",
+        [],
+    );
+    const [overlaySleepWindow, setOverlaySleepWindow] = usePersistedState("viz.overlaySleepWindow", 8);
 
     // Auto-import dev data file if present (development convenience)
     const autoImportedRef = useRef(false);
@@ -134,6 +144,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         [filteredRecords, effectiveForecastDays]
     );
 
+    const manualOverlayDays = useMemo(() => {
+        if (overlayControlPoints.length === 0 || circadianAnalysis.days.length === 0) return [];
+        const firstDate = circadianAnalysis.days[0]!.date;
+        const lastDate = circadianAnalysis.days[circadianAnalysis.days.length - 1]!.date;
+        return interpolateOverlay(overlayControlPoints, overlaySleepWindow, firstDate, lastDate);
+    }, [overlayControlPoints, overlaySleepWindow, circadianAnalysis.days]);
+
     const daySpan = useMemo(() => {
         if (filteredRecords.length === 0) return 0;
         const first = filteredRecords[0]!.startTime.getTime();
@@ -210,6 +227,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setShowScheduleEditor,
             scheduleEntries,
             setScheduleEntries,
+            overlayEditMode,
+            setOverlayEditMode,
+            overlayControlPoints,
+            setOverlayControlPoints,
+            overlaySleepWindow,
+            setOverlaySleepWindow,
+            manualOverlayDays,
             handleFetch,
         }),
         [
@@ -240,6 +264,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             showSchedule,
             showScheduleEditor,
             scheduleEntries,
+            overlayEditMode,
+            overlayControlPoints,
+            overlaySleepWindow,
+            manualOverlayDays,
             handleFetch,
         ]
     );

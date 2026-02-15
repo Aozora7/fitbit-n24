@@ -10,11 +10,12 @@ npm run build     # TypeScript check (tsc -b) + Vite production build
 npm run preview   # Preview production build locally
 npm run analyze -- <file.json> # Run circadian analysis/compare on exported sleep data
 npm run analyze-period -- <file.json> [startDate] [endDate] # Analyze specific date range
+npm run split-gaps -- <file.json> # Split file with gaps into separate segment files
 npm run test        # Run all tests once (vitest run)
 npm run test:watch  # Watch mode for TDD (vitest)
 ```
 
-ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `npx eslint <file>` or `npx prettier --check <file>` manually; the `.hooks/typescript-quality.sh` hook runs both automatically on `.ts`/`.tsx` file saves.
+ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `npx eslint <file>` or `npx prettier --check <file>`
 
 ## Architecture
 
@@ -31,7 +32,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | `src/AppContextDef.ts`                           | `ScheduleEntry`, `AppState` interfaces + `AppContext` object (no component, pure defs)   |
 | `src/AppContext.tsx`                             | `AppProvider` component only — all state, derived values, viz settings                   |
-| `src/useAppContext.ts`                           | `useAppContext()` consumer hook                                                           |
+| `src/useAppContext.ts`                           | `useAppContext()` consumer hook                                                          |
 | `src/usePersistedState.ts`                       | `usePersistedState<T>()` hook — localStorage-backed state (used throughout viz settings) |
 | `src/api/types.ts`                               | `RawSleepRecordV12` (API) and `SleepRecord` (internal) type definitions                  |
 | `src/data/useFitbitData.ts`                      | Data orchestrator: cache-first fetch, export, abort                                      |
@@ -48,7 +49,9 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/calculateSleepScore.ts`              | Sleep quality scoring (regression model)                                                 |
 | `src/models/lombScargle.ts`                      | Phase coherence periodogram (despite the filename, uses Rayleigh test, not Lomb-Scargle) |
 | `src/models/actogramData.ts`                     | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)        |
+| `src/models/overlayPath.ts`                      | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`      |
 | `src/components/Actogram/useActogramRenderer.ts` | Canvas rendering engine for the actogram                                                 |
+| `src/components/Actogram/useOverlayEditor.ts`    | Interactive overlay editor hook (click/drag/delete control points on canvas)             |
 | `cli/analyze.ts`                                 | CLI entry point for running analysis in Node.js (debugging harness)                      |
 
 ## Conventions
@@ -67,7 +70,9 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Row ordering** — `buildActogramRows` returns rows newest-first; in double-plot, the right half of row `i` shows `rows[i-1]`'s data (the next calendar day)
 - **Double-plot layer semantics** — sleep blocks and schedule overlay use next-day data on the right half; circadian overlay duplicates same-day data (tooltip uses `hour % 24` hit-testing)
 - **`nightStartHour`/`nightEndHour`** can be negative or >24 (`normalizedMid ± halfDur`); always normalize with `((h % 24) + 24) % 24` before rendering
-- **Renderer draw order** — circadian overlay → schedule overlay → sleep blocks → date labels; later layers paint over earlier ones
+- **Renderer draw order** — circadian overlay → schedule overlay → sleep blocks → date labels → editor overlay; later layers paint over earlier ones
+- **Overlay editor** — distinct edit mode (calendar mode only, disabled in tau mode); control points persist via `usePersistedState`; manual overlay renders in cyan, algorithm overlay dimmed as reference; "Export with overlay" produces ground-truth JSON with both `sleep` and `overlay` arrays
+- **Ground-truth test data** — `test-data/` is a gitignored independent git repo; each subdirectory contains `sleep.json` + `overlay.json` pairs; `circadian.groundtruth.test.ts` iterates all pairs and scores algorithm output against manual overlays (skips gracefully if directory missing)
 - **Tests** — Vitest, co-located in `__tests__/` dirs next to source; test files excluded from `tsc -b` build via `tsconfig.json` exclude; `_internals` barrel export on `circadian/index.ts` exposes private helpers for unit testing (tree-shaken from production); real data tests skip gracefully if `public/dev-data/auto-import.json` is missing
 
 ## Documentation

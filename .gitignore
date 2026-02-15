@@ -4,3 +4,4 @@ dist
 *.local
 .vite
 dev-data
+test-data

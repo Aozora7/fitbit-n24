@@ -182,6 +182,7 @@ A sleep record from 23:00 to 07:00 produces two blocks: one on day 1 covering `[
 5. Schedule overlay (green semi-transparent blocks, `rgba(34, 197, 94, 0.2)`)
 6. Sleep blocks (stage coloring, quality coloring, or solid fallback)
 7. Date labels on left margin (every row at large heights, every 7th row at small heights)
+8. Editor overlay — control point handles and connecting path line (only in edit mode)
 
 ### Sleep block rendering
 
@@ -404,6 +405,37 @@ The result includes both full-range points and a `trimmedPoints` array auto-focu
 
 The Rayleigh test significance threshold for p < 0.01: `R²_crit = -ln(0.01) / N_eff`, where N_eff is the effective sample size accounting for non-uniform weights.
 
+## Manual overlay editor
+
+The overlay editor provides a path-style tool for manually defining the circadian overlay, producing ground-truth data for regression testing.
+
+### Overlay path model (`overlayPath.ts`)
+
+Control points are `{ date: string, midpointHour: number }` where midpoints are stored unwrapped (can be <0 or >24) to avoid phase-wrap ambiguity. `interpolateOverlay()` produces per-day `OverlayDay` values via piecewise linear interpolation between control points, with flat extrapolation beyond endpoints. Width is applied uniformly from a global sleep window parameter.
+
+Phase unwrapping on point insertion uses the nearest-branch heuristic (same as `circadian/unwrap.ts`): `while (newMid - refMid > 12) newMid -= 24`.
+
+### Canvas interaction (`useOverlayEditor.ts`)
+
+A distinct edit mode (calendar mode only, disabled in tau mode) switches the canvas from tooltip behavior to editor behavior:
+- **Click** on plot area adds a control point at the clicked (date, hour)
+- **Mousedown** on an existing handle starts a drag (10px hit radius)
+- **Right-click** on a handle deletes it
+
+Control point handles are drawn both on the path line in the plot area and in a gutter column to the left of date labels (extends `leftMargin` by 20px in edit mode), making them clickable even at small row heights.
+
+### Rendering
+
+When manual overlay control points exist, the interpolated overlay renders in cyan (`rgba(6, 182, 212, 0.3)`) replacing the algorithm overlay. In edit mode, the algorithm overlay is also drawn at very low alpha (0.05) as a dim reference. The editor layer (handles + path line) draws last, on top of everything.
+
+### Ground-truth export
+
+"Export with overlay" produces a JSON file containing both `sleep` (record array) and `overlay` (per-day `OverlayDay[]`) arrays. The overlay is the fully interpolated result — frozen and independent of how it was produced. This file can be split into `sleep.json` and `overlay.json` for use in the ground-truth test data repository.
+
+### Ground-truth test data
+
+The `test-data/` directory (gitignored, independent git repo) contains subdirectories with `sleep.json` + `overlay.json` pairs. `circadian.groundtruth.test.ts` iterates all pairs, runs `analyzeCircadian()` on each dataset, and scores the algorithm's output against the manual overlay using circular midpoint distance (mean, median, p90). Tests skip gracefully when `test-data/` is missing.
+
 ## Tooltip interaction
 
 The `getTooltipInfo` callback converts mouse coordinates to row index and hour, then searches for a matching sleep block. For v1.2 records with stage data, the tooltip shows a breakdown: `D:78 L:157 R:63 W:81min`. It also shows the quality score percentage. Hovering over the circadian overlay shows the estimated night window, local tau, and confidence level (and whether it's a forecast). The tooltip is rendered as a fixed-position React div overlaying the canvas.
@@ -429,6 +461,8 @@ A separate `tsconfig.cli.json` provides Node.js-compatible settings (`module: "N
 | `circadian.scoring.test.ts`      | Accuracy metrics: phase error, noise/gap degradation, confidence calibration           |
 | `circadian.regimechange.test.ts` | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation |
 | `circadian.internals.test.ts`    | Unit tests for internal helper functions                                               |
+| `circadian.groundtruth.test.ts`  | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data) |
+| `overlayPath.test.ts`            | Overlay interpolation: linear interp, phase wrapping, extrapolation                    |
 | `lombScargle.test.ts`            | Periodogram computation tests                                                          |
 
 ## Tailwind CSS v4

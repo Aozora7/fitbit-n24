@@ -124,6 +124,13 @@ export default function VisualizationControls() {
         forecastDays,
         setForecastDays,
         forecastDisabled,
+        tauHours,
+        overlayEditMode,
+        setOverlayEditMode,
+        overlayControlPoints,
+        setOverlayControlPoints,
+        overlaySleepWindow,
+        setOverlaySleepWindow,
     } = useAppContext();
 
     const [collapsed, setCollapsed] = useState(false);
@@ -145,6 +152,41 @@ export default function VisualizationControls() {
                                 onChange={setShowScheduleEditor}
                                 label="Edit schedule"
                             />
+                        )}
+                        {showCircadian && tauHours === 24 && import.meta.env.DEV && (
+                            <>
+                                <Toggle checked={overlayEditMode} onChange={setOverlayEditMode} label="Edit overlay" />
+                                {overlayEditMode && (
+                                    <>
+                                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                                            Window
+                                            <input
+                                                type="range"
+                                                min={4}
+                                                max={12}
+                                                step={0.5}
+                                                value={overlaySleepWindow}
+                                                onChange={(e) => setOverlaySleepWindow(Number(e.target.value))}
+                                                className="w-16 accent-cyan-500"
+                                            />
+                                            <span className="min-w-[3ch] font-mono text-xs text-slate-400">
+                                                {overlaySleepWindow}h
+                                            </span>
+                                        </label>
+                                        <span className="text-xs text-slate-400">
+                                            {overlayControlPoints.length} pts
+                                        </span>
+                                        {overlayControlPoints.length > 0 && (
+                                            <button
+                                                onClick={() => setOverlayControlPoints([])}
+                                                className="rounded bg-slate-700 px-2 py-0.5 text-xs text-gray-300 hover:bg-slate-600"
+                                            >
+                                                Clear
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                            </>
                         )}
 
                         {/* ── Divider ── */}

@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useActogramRenderer } from "./useActogramRenderer";
+import { useOverlayEditor, EDITOR_GUTTER } from "./useOverlayEditor";
 import { buildActogramRows, buildTauRows } from "../../models/actogramData";
 import { useAppContext } from "../../useAppContext";
 
@@ -16,6 +17,10 @@ export default function Actogram() {
         forecastDisabled,
         showSchedule,
         scheduleEntries,
+        overlayEditMode,
+        overlayControlPoints,
+        setOverlayControlPoints,
+        manualOverlayDays,
     } = useAppContext();
 
     const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
@@ -30,13 +35,52 @@ export default function Actogram() {
 
     const circadianDays = showCircadian ? circadianAnalysis.days : [];
 
-    const { canvasRef, getTooltipInfo } = useActogramRenderer(rows, circadianDays, {
-        doublePlot,
-        rowHeight: effectiveRowHeight,
-        colorMode,
-        tauHours,
-        showSchedule,
-        scheduleEntries,
+    // Editor is active only in calendar mode with circadian overlay shown
+    const editorActive = import.meta.env.DEV && overlayEditMode && showCircadian && tauHours === 24;
+
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    const rendererConfig = useMemo(
+        () => ({
+            doublePlot,
+            rowHeight: effectiveRowHeight,
+            colorMode,
+            tauHours,
+            showSchedule,
+            scheduleEntries,
+            ...(editorActive ? { leftMargin: 80 + EDITOR_GUTTER } : {}),
+        }),
+        [doublePlot, effectiveRowHeight, colorMode, tauHours, showSchedule, scheduleEntries, editorActive]
+    );
+
+    const editorConfig = useMemo(
+        () => ({
+            doublePlot,
+            rowHeight: effectiveRowHeight,
+            colorMode,
+            tauHours,
+            leftMargin: editorActive ? 80 + EDITOR_GUTTER : 80,
+            topMargin: 30,
+            rightMargin: 16,
+            bottomMargin: 20,
+        }),
+        [doublePlot, effectiveRowHeight, colorMode, tauHours, editorActive]
+    );
+
+    const editor = useOverlayEditor(
+        canvasRef,
+        rows,
+        editorConfig,
+        overlayControlPoints,
+        setOverlayControlPoints,
+        editorActive
+    );
+
+    const { getTooltipInfo } = useActogramRenderer(rows, circadianDays, rendererConfig, {
+        manualOverlayDays: manualOverlayDays.length > 0 ? manualOverlayDays : undefined,
+        overlayEditMode: editorActive,
+        editorDraw: editorActive ? editor.drawEditor : undefined,
+        canvasRef,
     });
 
     const [tooltip, setTooltip] = useState<{
@@ -47,17 +91,24 @@ export default function Actogram() {
 
     const handleMouseMove = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
+            // In edit mode, forward to editor first (for drag handling)
+            if (editorActive) {
+                editor.onMouseMove(e);
+            }
+            // Always do tooltip hit-testing (sleep records only in edit mode)
             const rect = e.currentTarget.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             const info = getTooltipInfo(x, y);
-            if (info) {
+            // In edit mode, only show tooltip for sleep records (has "start" key), not bare date-only
+            const showTip = info && (!editorActive || "start" in info);
+            if (showTip) {
                 setTooltip({ x: e.clientX, y: e.clientY, info });
             } else {
                 setTooltip(null);
             }
         },
-        [getTooltipInfo]
+        [getTooltipInfo, editorActive, editor.onMouseMove]
     );
 
     const handleMouseLeave = useCallback(() => setTooltip(null), []);
@@ -67,7 +118,10 @@ export default function Actogram() {
             <canvas
                 ref={canvasRef}
                 className="w-full cursor-crosshair"
+                onMouseDown={editorActive ? editor.onMouseDown : undefined}
                 onMouseMove={handleMouseMove}
+                onMouseUp={editorActive ? editor.onMouseUp : undefined}
+                onContextMenu={editorActive ? editor.onContextMenu : undefined}
                 onMouseLeave={handleMouseLeave}
             />
             {tooltip && (
