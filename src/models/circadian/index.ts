@@ -4,17 +4,23 @@ import type { CircadianAnalysis } from "./types";
 import type { RegressionAnalysis } from "./regression/types";
 import { registerAlgorithm, getAlgorithm, listAlgorithms } from "./registry";
 import type { CircadianAlgorithm } from "./registry";
-import { analyzeCircadian as analyzeRegression, ALGORITHM_ID, _internals } from "./regression";
+import {
+    analyzeCircadian as analyzeRegression,
+    ALGORITHM_ID as REGRESSION_ALGORITHM_ID,
+    _internals,
+} from "./regression";
+import { analyzeCircadian as analyzeKalman, ALGORITHM_ID as KALMAN_ALGORITHM_ID } from "./kalman";
 
 export type { CircadianDay, CircadianAnalysis } from "./types";
 export type { RegressionAnalysis, AnchorPoint } from "./regression/types";
+export type { KalmanAnalysis } from "./kalman/types";
 export type { CircadianAlgorithm } from "./registry";
 export { registerAlgorithm, getAlgorithm, listAlgorithms } from "./registry";
 export { splitIntoSegments } from "./segments";
 export { GAP_THRESHOLD_DAYS } from "./types";
 
 const regressionAlgorithm: CircadianAlgorithm = {
-    id: ALGORITHM_ID,
+    id: REGRESSION_ALGORITHM_ID,
     name: "Weighted Regression",
     description: "Anchor-based weighted regression with sliding window evaluation and robust outlier handling",
     analyze: analyzeRegression,
@@ -22,7 +28,16 @@ const regressionAlgorithm: CircadianAlgorithm = {
 
 registerAlgorithm(regressionAlgorithm);
 
-export const DEFAULT_ALGORITHM_ID = ALGORITHM_ID;
+const kalmanAlgorithm: CircadianAlgorithm = {
+    id: KALMAN_ALGORITHM_ID,
+    name: "Kalman Filter",
+    description: "State-space model with forward Kalman filter and RTS backward smoother for optimal phase tracking",
+    analyze: analyzeKalman,
+};
+
+registerAlgorithm(kalmanAlgorithm);
+
+export const DEFAULT_ALGORITHM_ID = REGRESSION_ALGORITHM_ID;
 
 export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0): RegressionAnalysis {
     return analyzeRegression(records, extraDays);

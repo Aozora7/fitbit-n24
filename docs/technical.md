@@ -254,6 +254,14 @@ src/models/circadian/
     smoothing.ts     3-pass post-hoc overlay smoothing + forecast re-anchoring
     analyzeSegment.ts Per-segment analysis pipeline
     mergeSegments.ts Merge independently-analyzed segments into single result
+  kalman/
+    index.ts         Algorithm entry point: analyzeCircadian(), _internals barrel
+    types.ts         Kalman-specific types: KalmanAnalysis, State, Cov, constants
+    filter.ts        Forward Kalman filter: predict, update, Mahalanobis gating, ambiguity resolution
+    smoother.ts      Rauch-Tung-Striebel backward smoother
+    observations.ts  Sleep record → per-day observation extraction with adaptive noise
+    analyzeSegment.ts Per-segment pipeline: init → forward → backward → output
+    mergeSegments.ts Merge Kalman segments into single result
 ```
 
 ### Weighted Regression Algorithm: Step 1: Quality scoring
@@ -374,6 +382,50 @@ When forecast days are requested, the regression from the last data day (the "ed
 - `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `localDrift`, `confidenceScore`, `confidence` (tier: "high"/"medium"/"low"), `anchorSleep?`, `isForecast`, `isGap`
 - Legacy compat fields: `tau`, `dailyDrift`, `rSquared`
 
+### Kalman Filter Algorithm (`kalman-v1`)
+
+The Kalman filter algorithm treats circadian phase tracking as a state estimation problem, replacing the regression algorithm's 9-step pipeline with 3 steps and reducing tunable parameters from ~15 to 5.
+
+#### State-space model
+
+The hidden state is `[phase, drift]` where phase is the sleep midpoint in continuous hours and drift is the daily phase shift (tau - 24). The state transition assumes phase advances by drift each day, with drift following a random walk:
+
+```
+x(t+1) = F · x(t) + w(t)
+F = [[1, 1], [0, 1]]
+Q = diag(Q_PHASE, Q_DRIFT)
+```
+
+Each sleep record provides a noisy observation of phase modulo 24h. The 24h ambiguity is resolved by selecting the branch closest to the predicted phase — the prediction-correction cycle naturally handles phase wrapping without seed selection or expansion logic.
+
+#### Adaptive measurement noise
+
+Measurement noise R is inversely proportional to sleep quality, duration, and main-sleep status:
+
+```
+R(t) = R_BASE / (quality × durFactor × mainFactor)
+```
+
+This replaces the discrete 3-tier anchor classification with a continuous weighting scheme.
+
+#### Outlier gating
+
+Before each measurement update, the Mahalanobis distance is computed. Observations exceeding `GATE_THRESHOLD` standard deviations are rejected. Unlike a fixed threshold, this gate adapts to current uncertainty — it widens when the filter is uncertain and tightens when confident.
+
+#### RTS backward smoother
+
+After the forward Kalman pass, a Rauch-Tung-Striebel backward smoother runs a single backward pass to incorporate future information. This replaces the regression algorithm's 6-pass post-hoc smoothing with a mathematically optimal (MMSE) smoother.
+
+#### Pipeline
+
+1. **Observation extraction**: Convert SleepRecord[] to per-day observations with adaptive noise
+2. **Forward Kalman filter + RTS smoother**: Initialize from first observations, run predict/update forward, then RTS backward
+3. **Output generation**: Convert smoothed states to CircadianDay[] with confidence from posterior covariance
+
+#### Confidence scoring
+
+Confidence is derived directly from the posterior phase covariance: `1 / (1 + sqrt(P_phase))`. This is inherently calibrated — uncertainty grows naturally during data gaps and shrinks with observations. Forecast confidence additionally decays with `exp(-0.1 × daysFromEdge)`.
+
 ## Circadian algorithm parameters
 
 All locations below are relative to `src/models/circadian/`.
@@ -411,6 +463,23 @@ All locations below are relative to `src/models/circadian/`.
 | Backward bridge deviation       | 0.5h (flag if daily shift deviates 0.5h+ backward from expected)                                                          | `regression/smoothing.ts`      |
 | Backward bridge min run         | 3 days (min consecutive backward days to trigger bridging)                                                                | `regression/smoothing.ts`      |
 | Backward bridge max rate        | 3h/day (max interpolation rate sanity check)                                                                              | `regression/smoothing.ts`      |
+
+### Kalman filter algorithm parameters
+
+| Constant                        | Value                                                                       | Location                     |
+| ------------------------------- | --------------------------------------------------------------------------- | ---------------------------- |
+| Phase process noise (Q_PHASE)   | 0.04 h² (true circadian phase jitter ~0.2h/day)                            | `kalman/types.ts`            |
+| Drift process noise (Q_DRIFT)   | 0.0001 h²/day² (drift changes ~0.01 h/day per day)                         | `kalman/types.ts`            |
+| Base measurement noise (R_BASE) | 4.0 h² (night-to-night sleep timing variability ~2h)                       | `kalman/types.ts`            |
+| Mahalanobis gate threshold      | 3.5 (~99.95% valid observations pass)                                       | `kalman/types.ts`            |
+| Initialization window           | 7 days (linear fit for initial state)                                       | `kalman/types.ts`            |
+| Default drift prior             | 0.7 h/day (used when ≤2 initial observations)                              | `kalman/types.ts`            |
+| Initial phase covariance        | 4.0 h² (2h uncertainty)                                                     | `kalman/types.ts`            |
+| Initial drift covariance        | 0.25 h²/day² (0.5 h/day uncertainty)                                       | `kalman/types.ts`            |
+| Minimum record duration         | 2h (records shorter than this are skipped)                                  | `kalman/observations.ts`     |
+| Minimum record quality          | 0.1 (records below this are skipped)                                        | `kalman/observations.ts`     |
+| Drift clamp range               | [-1.5, +3.0] h/day (same hard limits as regression)                        | `kalman/analyzeSegment.ts`   |
+| Forecast confidence decay       | exp(-0.1 × daysFromEdge) (same as regression)                              | `kalman/analyzeSegment.ts`   |
 
 ## Sleep score regression weights
 

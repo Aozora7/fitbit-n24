@@ -50,6 +50,14 @@ src/
         smoothing.ts               3-pass post-hoc overlay smoothing + forecast re-anchoring
         analyzeSegment.ts          Per-segment analysis pipeline
         mergeSegments.ts           Merge independently-analyzed segments into single result
+      kalman/
+        index.ts                   Kalman filter algorithm entry point + _internals barrel for testing
+        types.ts                   Kalman-specific types: KalmanAnalysis, State, Cov, algorithm constants
+        filter.ts                  Forward Kalman filter: predict(), update(), gate(), resolveAmbiguity()
+        smoother.ts                Rauch-Tung-Striebel backward smoother (single optimal backward pass)
+        observations.ts            Sleep record → per-day observation extraction with adaptive measurement noise
+        analyzeSegment.ts          Per-segment pipeline: initialization, forward filter, RTS smoother, output
+        mergeSegments.ts           Merge Kalman segments into single KalmanAnalysis result
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)
     lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test) + buildPeriodogramAnchors()
     __tests__/

@@ -52,6 +52,13 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/circadian/regression/smoothing.ts`      | 3-pass post-hoc overlay smoothing + forecast re-anchoring                                     |
 | `src/models/circadian/regression/analyzeSegment.ts` | Per-segment analysis pipeline (steps 1-6 + smoothing call)                                    |
 | `src/models/circadian/regression/mergeSegments.ts`  | Merge independently-analyzed segments into single result                                      |
+| `src/models/circadian/kalman/index.ts`              | Kalman filter algorithm entry point + `_internals` barrel for testing                         |
+| `src/models/circadian/kalman/types.ts`              | Kalman-specific types: `KalmanAnalysis`, `State`, `Cov`, constants                            |
+| `src/models/circadian/kalman/filter.ts`             | Forward Kalman filter: predict, update, Mahalanobis gating, 24h ambiguity resolution          |
+| `src/models/circadian/kalman/smoother.ts`           | Rauch-Tung-Striebel backward smoother                                                         |
+| `src/models/circadian/kalman/observations.ts`       | Sleep record → per-day observation extraction with adaptive measurement noise                  |
+| `src/models/circadian/kalman/analyzeSegment.ts`     | Per-segment Kalman pipeline: init → forward filter → RTS smoother → output                    |
+| `src/models/circadian/kalman/mergeSegments.ts`      | Merge Kalman segments into single result                                                      |
 | `src/models/calculateSleepScore.ts`                 | Sleep quality scoring (regression model)                                                      |
 | `src/models/lombScargle.ts`                         | Phase coherence periodogram (despite the filename, uses Rayleigh test, not Lomb-Scargle)      |
 | `src/models/actogramData.ts`                        | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)             |

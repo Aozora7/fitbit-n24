@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { analyzeCircadian } from "../circadian";
+import { listAlgorithms } from "../circadian";
 import { hasTestData, listGroundTruthDatasets } from "./fixtures/loadGroundTruth";
 import { assertHardDriftLimits, computeDriftPenalty } from "./fixtures/driftPenalty";
 
@@ -95,6 +95,7 @@ function formatPct(n: number, total: number): string {
 
 interface GroundTruthStats {
     name: string;
+    algorithmId: string;
     n: number;
     mean: number;
     median: number;
@@ -141,7 +142,7 @@ function sign(v: number): string {
 function logCompact(s: GroundTruthStats): void {
     const agreePct = s.driftTotal > 0 ? Math.round((s.directionAgree / s.driftTotal) * 100) : 0;
     console.log(
-        `GTRESULT\t${s.name}\t` +
+        `GTRESULT\t${s.algorithmId}\t${s.name}\t` +
             `n=${s.n}\t` +
             `mean=${s.mean.toFixed(2)}h\t` +
             `median=${s.median.toFixed(2)}h\t` +
@@ -156,7 +157,7 @@ function logCompact(s: GroundTruthStats): void {
 }
 
 function logVerbose(s: GroundTruthStats): void {
-    console.log(`\n  ┌─ ${s.name} ────────────────────────`);
+    console.log(`\n  ┌─ [${s.algorithmId}] ${s.name} ────────────────────────`);
     console.log(`  │ Phase error:  mean=${s.mean.toFixed(2)}h  median=${s.median.toFixed(2)}h  p90=${s.p90.toFixed(2)}h  (n=${s.n})`);
     console.log(`  │ Signed bias:  ${sign(s.signedMean)}h  (+ = algo later than manual)`);
     console.log(`  │`);
@@ -203,173 +204,177 @@ function logVerbose(s: GroundTruthStats): void {
 
 describe.skipIf(!hasTestData)("ground truth scoring", () => {
     const datasets = hasTestData ? listGroundTruthDatasets() : [];
+    const algorithms = listAlgorithms();
 
     for (const dataset of datasets) {
         describe(dataset.name, () => {
-            it("algorithm overlay matches ground truth", () => {
-                const analysis = analyzeCircadian(dataset.records);
-                const algoMap = new Map(analysis.days.map((d) => [d.date, d]));
+            for (const algorithm of algorithms) {
+                it(`[${algorithm.id}] overlay matches ground truth`, () => {
+                    const analysis = algorithm.analyze(dataset.records);
+                    const algoMap = new Map(analysis.days.map((d) => [d.date, d]));
 
-                // Hard drift limits
-                assertHardDriftLimits(analysis.days);
+                    // Hard drift limits
+                    assertHardDriftLimits(analysis.days);
 
-                // Drift penalty
-                const penalty = computeDriftPenalty(analysis.days);
+                    // Drift penalty
+                    const penalty = computeDriftPenalty(analysis.days);
 
-                // Sort manual overlay by date
-                const gtSorted = [...dataset.overlay].sort((a, b) => a.date.localeCompare(b.date));
-                const gtMap = new Map(gtSorted.map((d) => [d.date, d]));
+                    // Sort manual overlay by date
+                    const gtSorted = [...dataset.overlay].sort((a, b) => a.date.localeCompare(b.date));
+                    const gtMap = new Map(gtSorted.map((d) => [d.date, d]));
 
-                // Compute drift rates for both
-                const algoDays = analysis.days.filter((d) => !d.isForecast && !d.isGap);
-                const algoDriftMap = driftRates(algoDays);
-                const gtDriftMap = driftRates(gtSorted);
+                    // Compute drift rates for both
+                    const algoDays = analysis.days.filter((d) => !d.isForecast && !d.isGap);
+                    const algoDriftMap = driftRates(algoDays);
+                    const gtDriftMap = driftRates(gtSorted);
 
-                // Build paired comparison
-                const pairs: DayPair[] = [];
-                for (const gt of gtSorted) {
-                    const algo = algoMap.get(gt.date);
-                    if (!algo || algo.isGap) continue;
-                    const am = midpoint(algo);
-                    const gm = midpoint(gt);
-                    pairs.push({
-                        date: gt.date,
-                        algoMid: am,
-                        manualMid: gm,
-                        signedError: signedCircularError(am, gm),
-                        absError: circularDistance(am, gm),
-                        algoDrift: algoDriftMap.get(gt.date),
-                        manualDrift: gtDriftMap.get(gt.date),
-                    });
-                }
-
-                if (pairs.length === 0) {
-                    console.log(`  ${dataset.name}: no overlapping dates to compare`);
-                    return;
-                }
-
-                // ── 1. Basic error stats ─────────────────────────
-                const absErrors = pairs.map((p) => p.absError).sort((a, b) => a - b);
-                const signedErrors = pairs.map((p) => p.signedError);
-                const mean = absErrors.reduce((s, e) => s + e, 0) / absErrors.length;
-                const median = percentile(absErrors, 0.5);
-                const p90 = percentile(absErrors, 0.9);
-                const signedMean = signedErrors.reduce((s, e) => s + e, 0) / signedErrors.length;
-
-                // ── 2. Directional drift agreement ───────────────
-                const driftPairs = pairs.filter((p) => p.algoDrift !== undefined && p.manualDrift !== undefined);
-                let directionAgree = 0;
-                let directionDisagree = 0;
-                let algoStalled = 0;
-                const DRIFT_THRESHOLD = 0.1;
-                for (const p of driftPairs) {
-                    const ad = p.algoDrift!;
-                    const md = p.manualDrift!;
-                    const algoSig = Math.abs(ad) >= DRIFT_THRESHOLD;
-                    const manualSig = Math.abs(md) >= DRIFT_THRESHOLD;
-
-                    if (!algoSig && manualSig) {
-                        algoStalled++;
-                    } else if (algoSig && manualSig) {
-                        if (Math.sign(ad) === Math.sign(md)) directionAgree++;
-                        else directionDisagree++;
-                    } else {
-                        directionAgree++;
+                    // Build paired comparison
+                    const pairs: DayPair[] = [];
+                    for (const gt of gtSorted) {
+                        const algo = algoMap.get(gt.date);
+                        if (!algo || algo.isGap) continue;
+                        const am = midpoint(algo);
+                        const gm = midpoint(gt);
+                        pairs.push({
+                            date: gt.date,
+                            algoMid: am,
+                            manualMid: gm,
+                            signedError: signedCircularError(am, gm),
+                            absError: circularDistance(am, gm),
+                            algoDrift: algoDriftMap.get(gt.date),
+                            manualDrift: gtDriftMap.get(gt.date),
+                        });
                     }
-                }
 
-                // ── 3. Cumulative shift & tau ────────────────────
-                const algoShift = cumulativeShift(algoDays);
-                const algoTau = shiftToTau(algoShift, algoDays.length);
-                const gtShift = cumulativeShift(gtSorted);
-                const gtTau = shiftToTau(gtShift, gtSorted.length);
+                    if (pairs.length === 0) {
+                        console.log(`  [${algorithm.id}] ${dataset.name}: no overlapping dates to compare`);
+                        return;
+                    }
 
-                // ── 4. Rolling window breakdown ──────────────────
-                const WINDOW_SIZE = 90;
-                const windowStats: GroundTruthStats["windowStats"] = [];
-                for (let i = 0; i < pairs.length; i += WINDOW_SIZE) {
-                    const window = pairs.slice(i, i + WINDOW_SIZE);
-                    if (window.length < 10) continue;
-                    const wMean = window.reduce((s, p) => s + p.absError, 0) / window.length;
-                    const wSignedMean = window.reduce((s, p) => s + p.signedError, 0) / window.length;
+                    // ── 1. Basic error stats ─────────────────────────
+                    const absErrors = pairs.map((p) => p.absError).sort((a, b) => a - b);
+                    const signedErrors = pairs.map((p) => p.signedError);
+                    const mean = absErrors.reduce((s, e) => s + e, 0) / absErrors.length;
+                    const median = percentile(absErrors, 0.5);
+                    const p90 = percentile(absErrors, 0.9);
+                    const signedMean = signedErrors.reduce((s, e) => s + e, 0) / signedErrors.length;
 
-                    const wAlgoDays = window.map((p) => algoMap.get(p.date)!).filter(Boolean);
-                    const wGtDays = window.map((p) => gtMap.get(p.date)!).filter(Boolean);
-                    const wAlgoShift = cumulativeShift(wAlgoDays);
-                    const wGtShift = cumulativeShift(wGtDays);
+                    // ── 2. Directional drift agreement ───────────────
+                    const driftPairs = pairs.filter((p) => p.algoDrift !== undefined && p.manualDrift !== undefined);
+                    let directionAgree = 0;
+                    let directionDisagree = 0;
+                    let algoStalled = 0;
+                    const DRIFT_THRESHOLD = 0.1;
+                    for (const p of driftPairs) {
+                        const ad = p.algoDrift!;
+                        const md = p.manualDrift!;
+                        const algoSig = Math.abs(ad) >= DRIFT_THRESHOLD;
+                        const manualSig = Math.abs(md) >= DRIFT_THRESHOLD;
 
-                    windowStats.push({
-                        start: window[0]!.date,
-                        end: window[window.length - 1]!.date,
-                        mean: wMean,
-                        signedMean: wSignedMean,
-                        n: window.length,
-                        tauAlgo: shiftToTau(wAlgoShift, wAlgoDays.length),
-                        tauManual: shiftToTau(wGtShift, wGtDays.length),
-                    });
-                }
-
-                // ── 5. Large divergence streaks ──────────────────
-                const DIVERGENCE_THRESH = 2.0;
-                const streaks: GroundTruthStats["streaks"] = [];
-                let streakStart = -1;
-                for (let i = 0; i <= pairs.length; i++) {
-                    const inStreak = i < pairs.length && pairs[i]!.absError > DIVERGENCE_THRESH;
-                    if (inStreak && streakStart < 0) {
-                        streakStart = i;
-                    } else if (!inStreak && streakStart >= 0) {
-                        const run = pairs.slice(streakStart, i);
-                        if (run.length >= 3) {
-                            streaks.push({
-                                start: run[0]!.date,
-                                end: run[run.length - 1]!.date,
-                                days: run.length,
-                                peakError: Math.max(...run.map((p) => p.absError)),
-                                avgSignedError: run.reduce((s, p) => s + p.signedError, 0) / run.length,
-                            });
+                        if (!algoSig && manualSig) {
+                            algoStalled++;
+                        } else if (algoSig && manualSig) {
+                            if (Math.sign(ad) === Math.sign(md)) directionAgree++;
+                            else directionDisagree++;
+                        } else {
+                            directionAgree++;
                         }
-                        streakStart = -1;
                     }
-                }
 
-                // ── Output ───────────────────────────────────────
-                const stats: GroundTruthStats = {
-                    name: dataset.name,
-                    n: pairs.length,
-                    mean,
-                    median,
-                    p90,
-                    signedMean,
-                    directionAgree,
-                    directionDisagree,
-                    algoStalled,
-                    driftTotal: driftPairs.length,
-                    algoShift,
-                    algoTau,
-                    gtShift,
-                    gtTau,
-                    tauDeltaMin: (algoTau - gtTau) * 60,
-                    streakCount: streaks.length,
-                    maxStreakDays: streaks.length > 0 ? Math.max(...streaks.map((s) => s.days)) : 0,
-                    driftPenalty: penalty.totalPenalty,
-                    penaltyDays: penalty.penaltyDays,
-                    penaltyFraction: penalty.penaltyFraction,
-                    windowStats,
-                    streaks,
-                    algoDays: algoDays.length,
-                    gtDays: gtSorted.length,
-                };
+                    // ── 3. Cumulative shift & tau ────────────────────
+                    const algoShift = cumulativeShift(algoDays);
+                    const algoTau = shiftToTau(algoShift, algoDays.length);
+                    const gtShift = cumulativeShift(gtSorted);
+                    const gtTau = shiftToTau(gtShift, gtSorted.length);
 
-                if (VERBOSE) {
-                    logVerbose(stats);
-                } else {
-                    logCompact(stats);
-                }
+                    // ── 4. Rolling window breakdown ──────────────────
+                    const WINDOW_SIZE = 90;
+                    const windowStats: GroundTruthStats["windowStats"] = [];
+                    for (let i = 0; i < pairs.length; i += WINDOW_SIZE) {
+                        const window = pairs.slice(i, i + WINDOW_SIZE);
+                        if (window.length < 10) continue;
+                        const wMean = window.reduce((s, p) => s + p.absError, 0) / window.length;
+                        const wSignedMean = window.reduce((s, p) => s + p.signedError, 0) / window.length;
 
-                // Loose thresholds — tighten as algorithm improves
-                expect(mean).toBeLessThan(3.0);
-                expect(p90).toBeLessThan(6.0);
-            });
+                        const wAlgoDays = window.map((p) => algoMap.get(p.date)!).filter(Boolean);
+                        const wGtDays = window.map((p) => gtMap.get(p.date)!).filter(Boolean);
+                        const wAlgoShift = cumulativeShift(wAlgoDays);
+                        const wGtShift = cumulativeShift(wGtDays);
+
+                        windowStats.push({
+                            start: window[0]!.date,
+                            end: window[window.length - 1]!.date,
+                            mean: wMean,
+                            signedMean: wSignedMean,
+                            n: window.length,
+                            tauAlgo: shiftToTau(wAlgoShift, wAlgoDays.length),
+                            tauManual: shiftToTau(wGtShift, wGtDays.length),
+                        });
+                    }
+
+                    // ── 5. Large divergence streaks ──────────────────
+                    const DIVERGENCE_THRESH = 2.0;
+                    const streaks: GroundTruthStats["streaks"] = [];
+                    let streakStart = -1;
+                    for (let i = 0; i <= pairs.length; i++) {
+                        const inStreak = i < pairs.length && pairs[i]!.absError > DIVERGENCE_THRESH;
+                        if (inStreak && streakStart < 0) {
+                            streakStart = i;
+                        } else if (!inStreak && streakStart >= 0) {
+                            const run = pairs.slice(streakStart, i);
+                            if (run.length >= 3) {
+                                streaks.push({
+                                    start: run[0]!.date,
+                                    end: run[run.length - 1]!.date,
+                                    days: run.length,
+                                    peakError: Math.max(...run.map((p) => p.absError)),
+                                    avgSignedError: run.reduce((s, p) => s + p.signedError, 0) / run.length,
+                                });
+                            }
+                            streakStart = -1;
+                        }
+                    }
+
+                    // ── Output ───────────────────────────────────────
+                    const stats: GroundTruthStats = {
+                        name: dataset.name,
+                        algorithmId: algorithm.id,
+                        n: pairs.length,
+                        mean,
+                        median,
+                        p90,
+                        signedMean,
+                        directionAgree,
+                        directionDisagree,
+                        algoStalled,
+                        driftTotal: driftPairs.length,
+                        algoShift,
+                        algoTau,
+                        gtShift,
+                        gtTau,
+                        tauDeltaMin: (algoTau - gtTau) * 60,
+                        streakCount: streaks.length,
+                        maxStreakDays: streaks.length > 0 ? Math.max(...streaks.map((s) => s.days)) : 0,
+                        driftPenalty: penalty.totalPenalty,
+                        penaltyDays: penalty.penaltyDays,
+                        penaltyFraction: penalty.penaltyFraction,
+                        windowStats,
+                        streaks,
+                        algoDays: algoDays.length,
+                        gtDays: gtSorted.length,
+                    };
+
+                    if (VERBOSE) {
+                        logVerbose(stats);
+                    } else {
+                        logCompact(stats);
+                    }
+
+                    // Loose thresholds — tighten as algorithm improves
+                    expect(mean).toBeLessThan(3.0);
+                    expect(p90).toBeLessThan(6.0);
+                });
+            }
         });
     }
 });
