@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useAppContext } from "../useAppContext";
 import { listAlgorithms } from "../models/circadian";
 import type { ColorMode } from "./Actogram/useActogramRenderer";
+import { usePersistedState } from "../usePersistedState";
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
     return (
@@ -139,7 +140,7 @@ export default function VisualizationControls() {
     const algorithms = listAlgorithms();
     const selectedAlgorithm = algorithms.find((a) => a.id === circadianAlgorithmId);
 
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = usePersistedState("viz.collapseControls", false);
 
     return (
         <div className="mx-auto mb-4 max-w-5xl rounded-lg border border-slate-700/50 bg-slate-800/60 px-3 py-2">
