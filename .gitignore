@@ -5,3 +5,4 @@ dist
 .vite
 dev-data
 test-data
+test-output

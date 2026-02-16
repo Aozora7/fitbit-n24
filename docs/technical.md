@@ -27,7 +27,7 @@ Fitbit API (v1.2)                        Local JSON file
             |       -> ActogramRow[]
             |       -> useActogramRenderer() (Canvas drawing)
             |
-            +---> analyzeCircadian()  (anchor selection, sliding-window robust regression)
+            +---> analyzeWithAlgorithm()  (pluggable algorithms: regression, Kalman, CSF)
             |       -> CircadianAnalysis { days: CircadianDay[], globalTau, ... }
             |       -> useActogramRenderer() (purple/amber overlay band with variable alpha)
             |
@@ -232,9 +232,9 @@ The circadian analysis module supports pluggable algorithms via a registry syste
 
 Algorithms implement the `CircadianAlgorithm` interface with `id`, `name`, `description`, and `analyze()` method. They register via `registerAlgorithm()` at module load time. The public API provides:
 
-- `analyzeCircadian(records, extraDays)` — runs the default algorithm (backwards compatible)
-- `analyzeWithAlgorithm(algorithmId, records, extraDays)` — runs a specific algorithm
+- `analyzeWithAlgorithm(algorithmId, records, extraDays)` — runs a specific algorithm by ID
 - `listAlgorithms()` — returns all registered algorithms
+- `DEFAULT_ALGORITHM_ID` — the default algorithm ID (`regression-v1`)
 
 The base `CircadianAnalysis` type contains only common fields (`globalTau`, `days`, etc.). Algorithm-specific data (e.g., `anchors`, `anchorTierCounts` for the regression algorithm) is in `RegressionAnalysis` which extends the base type.
 
@@ -242,7 +242,7 @@ The base `CircadianAnalysis` type contains only common fields (`globalTau`, `day
 
 ```
 src/models/circadian/
-  index.ts           Public API: analyzeCircadian(), analyzeWithAlgorithm(), type exports
+  index.ts           Public API: analyzeWithAlgorithm(), type exports, algorithm registration
   types.ts           Base types: CircadianAnalysis, CircadianDay
   registry.ts        Algorithm registry: registerAlgorithm(), getAlgorithm(), listAlgorithms()
   regression/
@@ -262,6 +262,13 @@ src/models/circadian/
     observations.ts  Sleep record → per-day observation extraction with adaptive noise
     analyzeSegment.ts Per-segment pipeline: init → forward → backward → output
     mergeSegments.ts Merge Kalman segments into single result
+  csf/
+    index.ts         Algorithm entry point: analyzeCircadian(), _internals barrel
+    types.ts         CSF-specific types: CSFAnalysis, CSFState, CSFConfig, constants
+    filter.ts        Von Mises filter: predict, update, forwardPass, rtsSmoother
+    anchors.ts       Anchor preparation (reuses regression tier classification)
+    analyzeSegment.ts Per-segment CSF pipeline: anchors → filter → smoother → output
+    mergeSegments.ts Merge CSF segments into single result
 ```
 
 ### Weighted Regression Algorithm: Step 1: Quality scoring
@@ -428,39 +435,40 @@ Confidence is derived directly from the posterior phase covariance: `1 / (1 + sq
 
 ### Circular State-Space Filter Algorithm (`csf-v1`)
 
-The CSF algorithm uses a Von Mises circular distribution for native phase handling, eliminating the need for phase unwrapping. It combines the simplicity of the Kalman filter with mathematically correct circular probability.
+The CSF algorithm uses a Von Mises circular distribution for measurement updates while tracking phase in an unbounded space for drift estimation. This hybrid approach combines the robustness of circular probability for handling 24h wraps with the ability to track cumulative drift over long time periods.
 
-#### Circular state-space model
+#### State-space model
 
-The state is `[phase, tau]` where phase is the circadian phase (circular, ∈ [0, 24)) and tau is the circadian period. State evolution:
+The state is `[phase, tau]` where phase is the circadian phase (unbounded hours from first observation) and tau is the circadian period. State evolution:
 
 ```
-phase(t+1) = phase(t) + tau(t) - 24  (mod 24)
+phase(t+1) = phase(t) + tau(t) - 24  (no modulo - tracks absolute phase)
 tau(t+1) = tau(t) + noise
 ```
 
 #### Von Mises measurement update
 
-Instead of linear phase unwrapping, the CSF uses the Von Mises distribution (circular analog of the normal distribution) for measurement updates:
+The CSF uses the Von Mises distribution (circular analog of the normal distribution) for measurement updates, computing the circular distance between predicted and observed phase:
 
 ```
-C_post = kappa_prior * cos(phase_prior) + kappa_meas * cos(measurement)
-S_post = kappa_prior * sin(phase_prior) + kappa_meas * sin(measurement)
-phase_post = atan2(S_post, C_post)
-kappa_post = sqrt(C_post² + S_post²)
+C_post = kappa_prior * cos(phase_prior_normalized) + kappa_meas * cos(measurement)
+S_post = kappa_prior * sin(phase_prior_normalized) + kappa_meas * sin(measurement)
+phase_post_circular = atan2(S_post, C_post)
+phase_post = phase_prior + circular_diff(phase_post_circular, phase_prior_normalized)
 ```
 
-This handles 24-hour wraparound naturally without branch selection logic.
+This handles 24-hour wraparound naturally while maintaining unbounded phase for drift tracking. Both the phase correction and the tau innovation are clamped to `±maxCorrectionPerStep` (4.0h) to prevent off-branch observations from yanking the overlay during bimodal sleep periods.
 
 #### Pipeline
 
 1. **Anchor preparation**: Same tier classification as regression algorithm (A/B/C)
 2. **Forward filter + RTS smoother**: Initialize from first anchor, predict/update forward, then RTS backward pass
-3. **Output generation**: Convert smoothed states to CircadianDay[]
+3. **Output generation**: Convert smoothed states to CircadianDay[] with normalized phase
 
 #### Key advantages
 
-- No phase unwrapping required (native circular distribution)
+- No phase unwrapping required (Von Mises handles circular observations)
+- Phase tracked in unbounded space (accurate drift estimation over years)
 - Unified confidence from posterior variance
 - Natural handling of gaps through filter prediction
 - 3 pipeline steps vs 7 for regression
@@ -505,32 +513,66 @@ All locations below are relative to `src/models/circadian/`.
 
 ### Kalman filter algorithm parameters
 
-| Constant                        | Value                                                | Location                   |
-| ------------------------------- | ---------------------------------------------------- | -------------------------- |
-| Phase process noise (Q_PHASE)   | 0.04 h² (true circadian phase jitter ~0.2h/day)      | `kalman/types.ts`          |
-| Drift process noise (Q_DRIFT)   | 0.0001 h²/day² (drift changes ~0.01 h/day per day)   | `kalman/types.ts`          |
-| Base measurement noise (R_BASE) | 4.0 h² (night-to-night sleep timing variability ~2h) | `kalman/types.ts`          |
-| Mahalanobis gate threshold      | 3.5 (~99.95% valid observations pass)                | `kalman/types.ts`          |
-| Initialization window           | 7 days (linear fit for initial state)                | `kalman/types.ts`          |
-| Default drift prior             | 0.7 h/day (used when ≤2 initial observations)        | `kalman/types.ts`          |
-| Initial phase covariance        | 4.0 h² (2h uncertainty)                              | `kalman/types.ts`          |
-| Initial drift covariance        | 0.25 h²/day² (0.5 h/day uncertainty)                 | `kalman/types.ts`          |
-| Minimum record duration         | 2h (records shorter than this are skipped)           | `kalman/observations.ts`   |
-| Minimum record quality          | 0.1 (records below this are skipped)                 | `kalman/observations.ts`   |
-| Drift clamp range               | [-1.5, +3.0] h/day (same hard limits as regression)  | `kalman/analyzeSegment.ts` |
-| Forecast confidence decay       | exp(-0.1 × daysFromEdge) (same as regression)        | `kalman/analyzeSegment.ts` |
+| Constant                        | Value                                                  | Location                   |
+| ------------------------------- | ------------------------------------------------------ | -------------------------- |
+| Phase process noise (Q_PHASE)   | 0.06 h² (allows moderate phase adaptation)             | `kalman/types.ts`          |
+| Drift process noise (Q_DRIFT)   | 0.003 h²/day² (allows drift to adapt over ~10-15 days) | `kalman/types.ts`          |
+| Base measurement noise (R_BASE) | 3.0 h² (night-to-night sleep timing variability ~1.7h) | `kalman/types.ts`          |
+| Mahalanobis gate threshold      | 3.5 (~99.95% valid observations pass)                  | `kalman/types.ts`          |
+| Initialization window           | 7 days (linear fit for initial state)                  | `kalman/types.ts`          |
+| Default drift prior             | 0.7 h/day (used when ≤2 initial observations)          | `kalman/types.ts`          |
+| Initial phase covariance        | 4.0 h² (2h uncertainty)                                | `kalman/types.ts`          |
+| Initial drift covariance        | 0.25 h²/day² (0.5 h/day uncertainty)                   | `kalman/types.ts`          |
+| Minimum record duration         | 2h (records shorter than this are skipped)             | `kalman/observations.ts`   |
+| Minimum record quality          | 0.1 (records below this are skipped)                   | `kalman/observations.ts`   |
+| Drift clamp range               | [-1.5, +3.0] h/day (same hard limits as regression)    | `kalman/analyzeSegment.ts` |
+| Forecast confidence decay       | exp(-0.1 × daysFromEdge) (same as regression)          | `kalman/analyzeSegment.ts` |
 
 ### CSF algorithm parameters
 
-| Constant               | Value                                           | Location         |
-| ---------------------- | ----------------------------------------------- | ---------------- |
-| Process noise phase    | 0.5 h² (phase uncertainty growth per day)       | `csf/types.ts`   |
-| Process noise tau      | 0.005 h²/day² (tau drift rate)                  | `csf/types.ts`   |
-| Measurement kappa base | 1.5 (base Von Mises concentration for weight=1) | `csf/types.ts`   |
-| Tau prior              | 24.5 h (expected tau for N24)                   | `csf/types.ts`   |
-| Tau prior variance     | 0.5 h² (initial tau uncertainty)                | `csf/types.ts`   |
-| Tau clamp range        | [22.0, 27.0] h (physiological bounds)           | `csf/types.ts`   |
-| Anchor tiers           | Same as regression (A/B/C classification)       | `csf/anchors.ts` |
+| Constant               | Value                                                         | Location           |
+| ---------------------- | ------------------------------------------------------------- | ------------------ |
+| Process noise phase    | 0.08 h² (phase uncertainty growth per day)                    | `csf/types.ts`     |
+| Process noise tau      | 0.001 h²/day² (tau drift rate)                                | `csf/types.ts`     |
+| Measurement kappa base | 0.35 (base Von Mises concentration)                           | `csf/types.ts`     |
+| Tau prior              | 25.0 h (forward-biased for N24)                               | `csf/types.ts`     |
+| Tau prior variance     | 0.1 h² (initial tau uncertainty)                              | `csf/types.ts`     |
+| Tau clamp range        | [22.0, 27.0] h (physiological bounds)                         | `csf/types.ts`     |
+| Anchor tiers           | Same as regression (A/B/C classification)                     | `csf/anchors.ts`   |
+| Ambiguity resolution   | Snaps measurements to predicted phase's branch                | `csf/filter.ts`    |
+| Output smoothing       | Phase/tau: σ=5 days, window=±8; Duration: σ=3 days, window=±5 | `csf/smoothing.ts` |
+| Weight scaling         | Linear (not squared) - reduces Tier A dominance               | `csf/filter.ts`    |
+| Tau regularization     | Asymmetric: 4x stronger pull toward forward drift             | `csf/filter.ts`    |
+| Max correction/step    | 4.0 h (clamps phase and tau innovation per update)            | `csf/types.ts`     |
+
+### Phase consistency metric
+
+The ground truth test includes a phase consistency metric that measures how well the algorithm's predicted phase changes match what local tau predicts. For each consecutive day pair:
+
+```
+expected_drift = localTau - 24  (hours/day)
+actual_change = phase[next] - phase[current]  (circular difference)
+inconsistency = |actual_change - expected_drift|
+```
+
+This penalizes algorithms that either:
+
+- **Overfit** to individual sleep records (CSF was 0.85-2.01h p90 before tuning)
+- **Over-smooth** and fail to track real N24 drift (Kalman was 0.03-0.04h p90 before tuning)
+
+After tuning, both algorithms achieve phase consistency comparable to regression (0.49-0.90h p90).
+
+### Ground truth test thresholds
+
+| Metric            | Threshold | Purpose                                               |
+| ----------------- | --------- | ----------------------------------------------------- |
+| Mean error        | < 3.0h    | Average phase error vs manual overlay                 |
+| P90 error         | < 6.0h    | Worst-case phase error (90th percentile)              |
+| Max window tau Δ  | < 50min   | Largest tau deviation in any 90-day window            |
+| Drift penalty     | < 1000    | Cumulative penalty for prolonged extreme drift values |
+| Phase consistency | (logged)  | P90 of day-to-day phase change vs predicted drift     |
+
+The max window tau delta catches algorithms that systematically misestimate drift over extended periods (e.g., Kalman's +75min in Aug-Oct 2024 Aozora, indicating ~1.25 extra revolutions vs manual).
 
 ## Sleep score regression weights
 
@@ -594,7 +636,7 @@ When manual overlay control points exist, the interpolated overlay renders in cy
 
 ### Ground-truth test data
 
-The `test-data/` directory (gitignored, independent git repo) contains subdirectories with `sleep.json` + `overlay.json` pairs. `circadian.groundtruth.test.ts` iterates all pairs, runs `analyzeCircadian()` on each dataset, and scores the algorithm's output against the manual overlay using circular midpoint distance (mean, median, p90). Tests skip gracefully when `test-data/` is missing.
+The `test-data/` directory (gitignored, independent git repo) contains subdirectories with `sleep.json` + `overlay.json` pairs. `circadian.groundtruth.test.ts` iterates all pairs, runs `analyzeWithAlgorithm()` for each registered algorithm on each dataset, and scores the algorithm's output against the manual overlay using circular midpoint distance (mean, median, p90). Tests skip gracefully when `test-data/` is missing.
 
 ## Tooltip interaction
 
@@ -605,25 +647,29 @@ The `getTooltipInfo` callback converts mouse coordinates to row index and hour, 
 `cli/analyze.ts` provides a Node.js entry point for running the analysis pipeline outside the browser. It uses `tsx` (TypeScript Execute, a dev dependency) to run TypeScript directly in Node.js without a compile step.
 
 ```
-npx tsx cli/analyze.ts <sleep-data.json>
+npx tsx cli/analyze.ts <sleep-data.json> [algorithmId]
 # or: npm run analyze -- <sleep-data.json>
 ```
 
-The CLI reads a JSON file with `fs.readFileSync`, parses it with `parseSleepData()` (the same pure function the browser app uses), and runs `analyzeCircadian()` to print summary statistics. It serves as a debugging harness — copy and modify it to import additional model functions, log intermediate values, or test algorithm changes without launching the browser.
+The CLI reads a JSON file with `fs.readFileSync`, parses it with `parseSleepData()` (the same pure function the browser app uses), and runs `analyzeWithAlgorithm()` to print summary statistics. An optional algorithm ID selects which algorithm to use (defaults to `regression-v1`). It serves as a debugging harness — copy and modify it to import additional model functions, log intermediate values, or test algorithm changes without launching the browser.
 
 A separate `tsconfig.cli.json` provides Node.js-compatible settings (`module: "NodeNext"`, `moduleResolution: "NodeNext"`) for type-checking CLI code. The main `tsconfig.json` and `npm run build` remain unchanged (browser-only).
 
 ## Test coverage
 
-| Test file                        | Category    | Purpose                                                                                                                                                                    |
-| -------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `circadian.integration.test.ts`  | correctness | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions                                                                                            |
-| `circadian.scoring.test.ts`      | mixed       | Benchmarks (tau sweep, phase accuracy, noise/gap/outlier degradation, forecast, cumulative shift) + correctness (confidence calibration, overlay smoothness, drift limits) |
-| `circadian.regimechange.test.ts` | correctness | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation                                                                                     |
-| `circadian.internals.test.ts`    | correctness | Unit tests for internal helper functions                                                                                                                                   |
-| `circadian.groundtruth.test.ts`  | correctness | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data)                                                                                    |
-| `overlayPath.test.ts`            | correctness | Overlay interpolation: linear interp, phase wrapping, extrapolation                                                                                                        |
-| `lombScargle.test.ts`            | correctness | Periodogram computation tests                                                                                                                                              |
+| Test file                                 | Category    | Purpose                                                                                                                                                                                                                                    |
+| ----------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `circadian.integration.test.ts`           | correctness | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions (runs on all algorithms)                                                                                                                                   |
+| `circadian.scoring.test.ts`               | mixed       | Benchmarks (tau sweep, phase accuracy, noise/gap/outlier degradation, forecast, cumulative shift) + correctness (confidence calibration, overlay smoothness, drift limits) (runs on all algorithms; periodogram benchmark regression-only) |
+| `circadian.regimechange.test.ts`          | correctness | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation (runs on all algorithms)                                                                                                                            |
+| `regression/regression.internals.test.ts` | correctness | Unit tests for regression internal helpers (classifyAnchor, regression, unwrapping)                                                                                                                                                        |
+| `circadian.groundtruth.test.ts`           | correctness | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data, runs on all algorithms)                                                                                                                            |
+| `overlayPath.test.ts`                     | correctness | Overlay interpolation: linear interp, phase wrapping, extrapolation                                                                                                                                                                        |
+| `lombScargle.test.ts`                     | correctness | Periodogram computation tests                                                                                                                                                                                                              |
+
+### Test visualization
+
+Set `VIZ=1` to generate self-contained HTML actograms in `test-output/` during test runs. Each HTML file shows sleep blocks (blue), algorithm overlay (purple/amber), and ground truth midpoints (green dots) on a dark-background canvas. Hover for per-day tooltip with localTau, confidence, and phase error. Files are named `{test}_{scenario}_{algorithm}.html`.
 
 ### Test categories
 

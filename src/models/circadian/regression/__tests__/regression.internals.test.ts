@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { _internals } from "../circadian";
-import type { SleepRecord } from "../../api/types";
+import { _internals } from "../index";
+import type { SleepRecord } from "../../../../api/types";
 
 const {
     classifyAnchor,

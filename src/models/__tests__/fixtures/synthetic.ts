@@ -55,6 +55,13 @@ export interface SyntheticOptions {
         boutsPerDay: number; // e.g., 3
         boutDuration: number; // hours per bout, e.g., 3.5
     };
+    /** Multiple fragmented periods (overrides fragmentedPeriod if provided) */
+    fragmentedPeriods?: Array<{
+        startDay: number;
+        endDay: number;
+        boutsPerDay: number;
+        boutDuration: number;
+    }>;
 }
 
 /**
@@ -100,8 +107,10 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
         outlierFraction = 0,
         outlierOffset = 6,
         fragmentedPeriod,
+        fragmentedPeriods,
     } = opts;
 
+    const fragPeriods = fragmentedPeriods ?? (fragmentedPeriod ? [fragmentedPeriod] : []);
     const rng = mulberry32(seed);
     const records: SleepRecord[] = [];
     const baseDate = new Date("2024-01-01T00:00:00");
@@ -128,17 +137,15 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
             "-" +
             String(dayDate.getDate()).padStart(2, "0");
 
-        // Fragmented period: generate multiple short bouts instead of one consolidated sleep
-        if (fragmentedPeriod && d >= fragmentedPeriod.startDay && d < fragmentedPeriod.endDay) {
-            const { boutsPerDay, boutDuration } = fragmentedPeriod;
-            // Spread bouts across the day; one closest to circadian midpoint is mainSleep
-            const spacing = 24 / boutsPerDay;
+        const frag = fragPeriods.find((p) => d >= p.startDay && d < p.endDay);
+        if (frag) {
+            const { boutsPerDay, boutDuration } = frag;
+            const numBouts = Math.max(1, boutsPerDay + Math.floor((rng() - 0.5) * 3));
             const boutMidpoints: number[] = [];
-            for (let b = 0; b < boutsPerDay; b++) {
-                const offset = (b - Math.floor(boutsPerDay / 2)) * spacing;
-                boutMidpoints.push(midpointTrue + offset + gaussianSample(rng) * noise);
+            for (let b = 0; b < numBouts; b++) {
+                const baseOffset = (rng() - 0.5) * 20;
+                boutMidpoints.push(midpointTrue + baseOffset + gaussianSample(rng) * 2);
             }
-            // Find which bout is closest to true circadian midpoint
             let closestIdx = 0;
             let closestDist = Infinity;
             for (let b = 0; b < boutMidpoints.length; b++) {
@@ -148,13 +155,16 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
                     closestIdx = b;
                 }
             }
-            for (let b = 0; b < boutsPerDay; b++) {
+            for (let b = 0; b < numBouts; b++) {
                 const boutMid = boutMidpoints[b]!;
-                const halfDur = boutDuration / 2;
+                const durVariation = (rng() - 0.5) * boutDuration * 0.6;
+                const thisDuration = Math.max(0.5, boutDuration + durVariation);
+                const halfDur = thisDuration / 2;
                 const startMs = dayDate.getTime() + (boutMid - halfDur) * 3_600_000;
                 const endMs = dayDate.getTime() + (boutMid + halfDur) * 3_600_000;
                 const durationMs = endMs - startMs;
                 const isMain = b === closestIdx;
+                const eff = isMain ? 80 + rng() * 15 : 60 + rng() * 20;
                 records.push({
                     logId: nextLogId++,
                     dateOfSleep: dateStr,
@@ -162,11 +172,11 @@ export function generateSyntheticRecords(opts: SyntheticOptions = {}): SleepReco
                     endTime: new Date(endMs),
                     durationMs,
                     durationHours: durationMs / 3_600_000,
-                    efficiency: isMain ? 85 : 75,
-                    minutesAsleep: Math.round((durationMs / 60_000) * (isMain ? 0.85 : 0.75)),
-                    minutesAwake: Math.round((durationMs / 60_000) * (isMain ? 0.15 : 0.25)),
+                    efficiency: Math.round(eff),
+                    minutesAsleep: Math.round((durationMs / 60_000) * (eff / 100)),
+                    minutesAwake: Math.round((durationMs / 60_000) * (1 - eff / 100)),
                     isMainSleep: isMain,
-                    sleepScore: isMain ? quality * 0.7 : quality * 0.4,
+                    sleepScore: isMain ? quality * (0.5 + rng() * 0.3) : quality * (0.3 + rng() * 0.2),
                 });
             }
             // Consume remaining RNG slots for determinism

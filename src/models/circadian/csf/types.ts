@@ -15,6 +15,7 @@ export interface CSFConfig {
     measurementKappaBase: number;
     tauPrior: number;
     tauPriorVar: number;
+    maxCorrectionPerStep: number;
 }
 
 export interface CSFAnchor {
@@ -51,11 +52,12 @@ export interface SegmentResult {
 }
 
 export const DEFAULT_CONFIG: CSFConfig = {
-    processNoisePhase: 0.5,
-    processNoiseTau: 0.005,
-    measurementKappaBase: 1.5,
-    tauPrior: 24.5,
-    tauPriorVar: 0.5,
+    processNoisePhase: 0.08,
+    processNoiseTau: 0.001,
+    measurementKappaBase: 0.35,
+    tauPrior: 25.0,
+    tauPriorVar: 0.1,
+    maxCorrectionPerStep: 4.0,
 };
 
 export const MIN_ANCHORS = 2;

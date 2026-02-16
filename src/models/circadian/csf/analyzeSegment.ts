@@ -4,6 +4,7 @@ import type { CSFConfig, SegmentResult } from "./types";
 import { DEFAULT_CONFIG, TAU_MIN, TAU_MAX } from "./types";
 import { prepareAnchors } from "./anchors";
 import { forwardPass, rtsSmoother, normalizeAngle, circularDiff } from "./filter";
+import { smoothOutputPhase } from "./smoothing";
 
 export function analyzeSegment(
     records: SleepRecord[],
@@ -29,8 +30,28 @@ export function analyzeSegment(
 
     const forwardStates = forwardPass(anchors, segFirstDay, segLastDay, config);
     const smoothedStates = rtsSmoother(forwardStates, config);
+    const outputStates = smoothOutputPhase(smoothedStates, 5, 8);
 
     const anchorByDay = new Map(anchors.map((a) => [a.dayNumber, a] as const));
+
+    const smoothedDurations: number[] = [];
+    const DURATION_SIGMA = 3;
+    const DURATION_HALF_WINDOW = 5;
+    for (let i = 0; i <= totalDays; i++) {
+        let durSum = 0;
+        let weightSum = 0;
+        for (let j = Math.max(0, i - DURATION_HALF_WINDOW); j <= Math.min(totalDays, i + DURATION_HALF_WINDOW); j++) {
+            const state = outputStates[j];
+            const anchor = state ? anchorByDay.get(segFirstDay + j) : null;
+            if (anchor) {
+                const dist = Math.abs(j - i);
+                const weight = Math.exp(-0.5 * (dist / DURATION_SIGMA) ** 2);
+                durSum += weight * anchor.record.durationHours;
+                weightSum += weight;
+            }
+        }
+        smoothedDurations.push(weightSum > 0 ? durSum / weightSum : 8);
+    }
 
     const days: CircadianDay[] = [];
     const residuals: number[] = [];
@@ -39,7 +60,7 @@ export function analyzeSegment(
 
     for (let localD = 0; localD <= totalDays; localD++) {
         const globalD = segFirstDay + localD;
-        const state = smoothedStates[localD];
+        const state = outputStates[localD];
 
         if (!state) continue;
 
@@ -59,7 +80,7 @@ export function analyzeSegment(
         const anchor = anchorByDay.get(globalD);
         const isForecast = globalD > segLastDay - extraDays;
 
-        const halfDur = anchor ? anchor.record.durationHours / 2 : 4;
+        const halfDur = smoothedDurations[localD] ? smoothedDurations[localD]! / 2 : 4;
 
         let confScore: number;
         if (isForecast) {

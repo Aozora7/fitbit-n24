@@ -150,7 +150,7 @@ export default function VisualizationControls() {
                         <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Display</span>
                         <Toggle checked={doublePlot} onChange={setDoublePlot} label="Double plot" />
                         <Toggle checked={showCircadian} onChange={setShowCircadian} label="Circadian overlay" />
-                        {showCircadian && algorithms.length > 1 && (
+                        {showCircadian && import.meta.env.DEV && algorithms.length > 1 && (
                             <label className="flex items-center gap-2 text-sm text-gray-300">
                                 Algorithm
                                 <select

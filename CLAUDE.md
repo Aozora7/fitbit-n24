@@ -8,13 +8,14 @@ Client-side React app that visualizes Fitbit sleep data as an actogram with circ
 npm run dev       # Dev server at http://localhost:5173 (--host for network access)
 npm run build     # TypeScript check (tsc -b) + Vite production build
 npm run preview   # Preview production build locally
-npm run analyze -- <file.json> # Run circadian analysis/compare on exported sleep data
-npm run analyze-period -- <file.json> [startDate] [endDate] # Analyze specific date range
+npm run analyze -- <file.json> [algorithmId] # Run circadian analysis on exported sleep data
+npm run analyze-period -- <file.json> [startDate] [endDate] [algorithmId] # Analyze specific date range
 npm run split-gaps -- <file.json> # Split file with gaps into separate segment files
 npm run compare -- <file.json> [algorithmIds...] # Compare algorithms on the same data
 npm run test        # Run all tests once (vitest run)
 npm run test:watch  # Watch mode for TDD (vitest)
 VERBOSE=1 npx vitest run circadian.groundtruth  # Full diagnostic output for ground truth tests
+VIZ=1 npm run test    # Generate HTML actogram visualizations in test-output/
 ```
 
 ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `npx eslint <file>` or `npx prettier --check <file>`
@@ -25,7 +26,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Single context** — `AppContextDef.ts` defines types + context object; `AppContext.tsx` contains only `AppProvider`; `useAppContext.ts` and `usePersistedState.ts` are in separate files — all split for Vite Fast Refresh compatibility
 - **Provider hierarchy** — `main.tsx`: `AuthProvider` → `AppProvider` → `App`
 - **Canvas rendering** — actogram and periodogram use HTML Canvas via `useEffect`, not React DOM elements
-- **Pure analysis functions** — `analyzeCircadian()` and `computeLombScargle()` are pure functions called via `useMemo`
+- **Pure analysis functions** — `analyzeWithAlgorithm()` and `computeLombScargle()` are pure functions called via `useMemo`
 - **CLI runner** — `cli/analyze.ts` runs analysis functions directly in Node.js via `tsx`, using `parseSleepData()` from `loadLocalData.ts` to bypass browser `fetch()`
 
 ## Key files
@@ -40,11 +41,12 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/data/useFitbitData.ts`                         | Data orchestrator: cache-first fetch, export, abort                                           |
 | `src/data/sleepCache.ts`                            | IndexedDB caching (database: `fitbit-n24-cache`)                                              |
 | `src/models/circadian/`                             | Circadian period estimation module (pluggable algorithms)                                     |
-| `src/models/circadian/index.ts`                     | Public API: `analyzeCircadian()`, `analyzeWithAlgorithm()`, type exports                      |
+| `src/models/circadian/index.ts`                     | Public API: `analyzeWithAlgorithm()`, `DEFAULT_ALGORITHM_ID`, type exports                    |
 | `src/models/circadian/types.ts`                     | Base types: `CircadianAnalysis`, `CircadianDay`, `GAP_THRESHOLD_DAYS` (algorithm-independent) |
 | `src/models/circadian/registry.ts`                  | Algorithm registry: `registerAlgorithm()`, `getAlgorithm()`, `listAlgorithms()`               |
 | `src/models/circadian/segments.ts`                  | Segment splitting for data gaps (`splitIntoSegments`)                                         |
 | `src/models/circadian/regression/index.ts`          | Weighted regression algorithm entry point + `_internals` barrel for testing                   |
+| `src/models/circadian/regression/__tests__/`        | Regression-specific tests (internals unit tests)                                              |
 | `src/models/circadian/regression/types.ts`          | Regression-specific types: `RegressionAnalysis`, `Anchor`, `AnchorPoint`, constants           |
 | `src/models/circadian/regression/regression.ts`     | Weighted/robust regression, Gaussian kernel, sliding window evaluation                        |
 | `src/models/circadian/regression/unwrap.ts`         | Seed-based phase unwrapping with regression/pairwise branch resolution                        |
@@ -71,6 +73,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/overlayPath.ts`                         | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`           |
 | `src/components/Actogram/useActogramRenderer.ts`    | Canvas rendering engine for the actogram                                                      |
 | `src/components/Actogram/useOverlayEditor.ts`       | Interactive overlay editor hook (click/drag/delete control points on canvas)                  |
+| `src/models/__tests__/fixtures/visualize.ts`        | Test visualization: `generateVizHtml()`, `maybeSaveViz()` — HTML actograms with VIZ=1        |
 | `cli/analyze.ts`                                    | CLI entry point for running analysis in Node.js (debugging harness)                           |
 
 ## Conventions

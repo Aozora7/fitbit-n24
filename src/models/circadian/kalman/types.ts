@@ -23,14 +23,14 @@ export interface Observation {
 
 // --- Algorithm constants ---
 
-/** Process noise for phase (h²) — true circadian phase jitter ~0.1h/day */
-export const Q_PHASE = 0.01;
+/** Process noise for phase (h²) — allows faster phase adaptation */
+export const Q_PHASE = 0.06;
 
-/** Process noise for drift (h²/day²) — drift changes ~0.01 h/day per day */
-export const Q_DRIFT = 0.0001;
+/** Process noise for drift (h²/day²) — allows drift to adapt over ~10-15 days */
+export const Q_DRIFT = 0.003;
 
-/** Base measurement noise (h²) — night-to-night sleep timing variability ~2h */
-export const R_BASE = 1.5;
+/** Base measurement noise (h²) — night-to-night sleep timing variability ~1.5h */
+export const R_BASE = 3.0;
 
 /** Mahalanobis distance threshold for outlier gating */
 export const GATE_THRESHOLD = 3.5;

@@ -12,6 +12,10 @@ export function circularDiff(a: number, b: number): number {
     return diff;
 }
 
+export function resolveAmbiguity(measurement: number, predictedPhase: number): number {
+    return measurement + Math.round((predictedPhase - measurement) / 24) * 24;
+}
+
 export function vonMisesUpdate(
     priorPhase: number,
     priorKappa: number,
@@ -34,7 +38,7 @@ export function vonMisesUpdate(
     const postPhase = Math.atan2(S_post, C_post) / scale;
 
     return {
-        phase: normalizeAngle(postPhase),
+        phase: postPhase,
         kappa: postKappa,
     };
 }
@@ -51,39 +55,75 @@ export function initializeState(firstAnchor: CSFAnchor, config: CSFConfig): CSFS
 
 export function predict(state: CSFState, config: CSFConfig): CSFState {
     const driftPerDay = state.tau - 24;
-    const newPhase = normalizeAngle(state.phase + driftPerDay);
+    const newPhase = state.phase + driftPerDay;
 
     const newPhaseVar = Math.max(0.01, state.phaseVar + 2 * state.cov + state.tauVar + config.processNoisePhase);
     const newTauVar = Math.max(0.001, state.tauVar + config.processNoiseTau);
-    const newCov = state.cov + state.tauVar;
+    const newCov = Math.min(state.cov + state.tauVar, 10);
 
     return {
         phase: newPhase,
         tau: state.tau,
-        phaseVar: newPhaseVar,
         tauVar: newTauVar,
+        phaseVar: newPhaseVar,
         cov: newCov,
     };
 }
 
+export function regularizeTau(state: CSFState, config: CSFConfig): CSFState {
+    const drift = state.tau - 24;
+    const priorDrift = config.tauPrior - 24;
+
+    const driftDiff = drift - priorDrift;
+
+    let regularizationStrength: number;
+    if (drift < 0) {
+        regularizationStrength = 0.04;
+    } else if (drift > priorDrift) {
+        regularizationStrength = 0.01;
+    } else {
+        regularizationStrength = 0.005;
+    }
+
+    const regularizedTau = state.tau - driftDiff * regularizationStrength;
+
+    return {
+        ...state,
+        tau: Math.max(TAU_MIN, Math.min(TAU_MAX, regularizedTau)),
+    };
+}
+
 export function update(predicted: CSFState, anchor: CSFAnchor, config: CSFConfig): CSFState {
-    const measurementKappa = Math.max(0.001, config.measurementKappaBase * anchor.weight * anchor.weight);
+    const measurementKappa = Math.max(0.001, config.measurementKappaBase * anchor.weight);
     const priorKappa = Math.max(0.001, 1 / Math.max(predicted.phaseVar, 0.01));
 
-    const { phase: updatedPhase, kappa: updatedKappa } = vonMisesUpdate(
-        predicted.phase,
+    const resolvedMeasurement = resolveAmbiguity(anchor.midpointHour, predicted.phase);
+
+    const normalizedPredicted = normalizeAngle(predicted.phase);
+    const normalizedMeasurement = normalizeAngle(resolvedMeasurement);
+
+    const { phase: updatedPhaseCircular, kappa: updatedKappa } = vonMisesUpdate(
+        normalizedPredicted,
         priorKappa,
-        anchor.midpointHour,
+        normalizedMeasurement,
         measurementKappa
     );
 
-    const phaseResidual = circularDiff(anchor.midpointHour, predicted.phase);
+    let phaseCorrection = circularDiff(updatedPhaseCircular, normalizedPredicted);
 
-    const innovation = phaseResidual;
+    // Clamp maximum phase correction per step to prevent branch-jumping
+    phaseCorrection = Math.max(-config.maxCorrectionPerStep, Math.min(config.maxCorrectionPerStep, phaseCorrection));
+
+    const updatedPhase = predicted.phase + phaseCorrection;
+
+    const phaseResidual = circularDiff(resolvedMeasurement, predicted.phase);
+
+    // Clamp tau innovation consistently with phase correction clamp
+    const clampedInnovation = Math.max(-config.maxCorrectionPerStep, Math.min(config.maxCorrectionPerStep, phaseResidual));
     const innovationVar = Math.max(0.01, predicted.phaseVar + 1 / measurementKappa);
     const kalmanGain = predicted.cov / innovationVar;
 
-    let updatedTau = predicted.tau + kalmanGain * innovation;
+    let updatedTau = predicted.tau + kalmanGain * clampedInnovation;
     if (!Number.isFinite(updatedTau)) {
         updatedTau = predicted.tau;
     }
@@ -116,6 +156,8 @@ export function forwardPass(anchors: CSFAnchor[], firstDay: number, lastDay: num
             state = update(state, anchor, config);
         }
 
+        state = regularizeTau(state, config);
+
         states.push(state);
     }
 
@@ -139,9 +181,9 @@ export function rtsSmoother(forwardStates: CSFState[], config: CSFConfig): Smoot
         const next = smoothed[t + 1]!;
 
         const predictedNextVar = Math.max(0.01, curr.phaseVar + 2 * curr.cov + curr.tauVar + config.processNoisePhase);
-        const gain = Math.min(1, Math.abs(curr.cov) / predictedNextVar);
+        const gain = Math.min(0.95, Math.max(0.1, curr.phaseVar / predictedNextVar));
 
-        const expectedPhase = normalizeAngle(curr.phase + (curr.tau - 24));
+        const expectedPhase = curr.phase + (curr.tau - 24);
         const phaseInnov = circularDiff(next.smoothedPhase, expectedPhase);
         const tauInnov = next.smoothedTau - curr.tau;
 
@@ -151,7 +193,7 @@ export function rtsSmoother(forwardStates: CSFState[], config: CSFConfig): Smoot
         }
         smoothedTau = Math.max(TAU_MIN, Math.min(TAU_MAX, smoothedTau));
 
-        smoothed[t]!.smoothedPhase = normalizeAngle(curr.phase + gain * phaseInnov);
+        smoothed[t]!.smoothedPhase = curr.phase + gain * phaseInnov;
         smoothed[t]!.smoothedTau = smoothedTau;
         smoothed[t]!.smoothedPhaseVar = Math.max(0.01, curr.phaseVar * (1 - gain));
         smoothed[t]!.smoothedTauVar = Math.max(0.001, curr.tauVar * (1 - gain));

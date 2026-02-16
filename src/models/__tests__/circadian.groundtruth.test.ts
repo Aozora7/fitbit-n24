@@ -110,11 +110,19 @@ interface GroundTruthStats {
     gtShift: number;
     gtTau: number;
     tauDeltaMin: number;
+    maxTauDeltaWindow: number;
     streakCount: number;
+    severeStreakCount: number;
     maxStreakDays: number;
     driftPenalty: number;
     penaltyDays: number;
     penaltyFraction: number;
+    phaseConsistencyMean: number;
+    phaseConsistencyP90: number;
+    phaseConsistencyMax: number;
+    phaseStepViolations: number;
+    phaseStepMin: number;
+    phaseStepMax: number;
     windowStats: {
         start: string;
         end: string;
@@ -150,15 +158,21 @@ function logCompact(s: GroundTruthStats): void {
             `bias=${sign(s.signedMean)}h\t` +
             `drift-agree=${agreePct}%\t` +
             `tau-delta=${sign(s.tauDeltaMin)}min\t` +
+            `max-win-tau=${sign(s.maxTauDeltaWindow)}min\t` +
             `streaks=${s.streakCount}\t` +
-            `max-streak=${s.maxStreakDays}d\t` +
-            `penalty=${s.driftPenalty.toFixed(2)}`,
+            `severe=${s.severeStreakCount}\t` +
+            `step=[${s.phaseStepMin.toFixed(1)},${s.phaseStepMax.toFixed(1)}]\t` +
+            `violations=${s.phaseStepViolations}\t` +
+            `penalty=${s.driftPenalty.toFixed(2)}\t` +
+            `phase-cons=${s.phaseConsistencyP90.toFixed(2)}h`
     );
 }
 
 function logVerbose(s: GroundTruthStats): void {
     console.log(`\n  ┌─ [${s.algorithmId}] ${s.name} ────────────────────────`);
-    console.log(`  │ Phase error:  mean=${s.mean.toFixed(2)}h  median=${s.median.toFixed(2)}h  p90=${s.p90.toFixed(2)}h  (n=${s.n})`);
+    console.log(
+        `  │ Phase error:  mean=${s.mean.toFixed(2)}h  median=${s.median.toFixed(2)}h  p90=${s.p90.toFixed(2)}h  (n=${s.n})`
+    );
     console.log(`  │ Signed bias:  ${sign(s.signedMean)}h  (+ = algo later than manual)`);
     console.log(`  │`);
     console.log(`  │ Drift direction (day-to-day):`);
@@ -167,7 +181,9 @@ function logVerbose(s: GroundTruthStats): void {
     console.log(`  │   stalled:  ${formatPct(s.algoStalled, s.driftTotal)}  (algo ~0 but manual significant)`);
     console.log(`  │`);
     console.log(`  │ Overall tau:`);
-    console.log(`  │   algorithm: shift=${s.algoShift.toFixed(1)}h  tau=${s.algoTau.toFixed(4)}h  (${s.algoDays} days)`);
+    console.log(
+        `  │   algorithm: shift=${s.algoShift.toFixed(1)}h  tau=${s.algoTau.toFixed(4)}h  (${s.algoDays} days)`
+    );
     console.log(`  │   manual:    shift=${s.gtShift.toFixed(1)}h  tau=${s.gtTau.toFixed(4)}h  (${s.gtDays} days)`);
     console.log(`  │   delta:     ${sign(s.tauDeltaMin)} min/day`);
 
@@ -177,7 +193,7 @@ function logVerbose(s: GroundTruthStats): void {
         for (const w of s.windowStats) {
             const tauDelta = (w.tauAlgo - w.tauManual) * 60;
             console.log(
-                `  │   ${w.start} → ${w.end}:  err=${w.mean.toFixed(2)}h  bias=${sign(w.signedMean)}h  tau Δ=${sign(tauDelta)}min  (n=${w.n})`,
+                `  │   ${w.start} → ${w.end}:  err=${w.mean.toFixed(2)}h  bias=${sign(w.signedMean)}h  tau Δ=${sign(tauDelta)}min  (n=${w.n})`
             );
         }
     }
@@ -188,14 +204,20 @@ function logVerbose(s: GroundTruthStats): void {
         for (const st of s.streaks) {
             const dir = st.avgSignedError >= 0 ? "algo later" : "algo earlier";
             console.log(
-                `  │   ${st.start} → ${st.end}  (${st.days}d)  peak=${st.peakError.toFixed(1)}h  ${dir} by ${Math.abs(st.avgSignedError).toFixed(1)}h`,
+                `  │   ${st.start} → ${st.end}  (${st.days}d)  peak=${st.peakError.toFixed(1)}h  ${dir} by ${Math.abs(st.avgSignedError).toFixed(1)}h`
             );
         }
     }
 
     console.log(`  │`);
     console.log(
-        `  │ Drift penalty:  score=${s.driftPenalty.toFixed(2)}  days=${s.penaltyDays}  fraction=${(s.penaltyFraction * 100).toFixed(1)}%`,
+        `  │ Drift penalty:  score=${s.driftPenalty.toFixed(2)}  days=${s.penaltyDays}  fraction=${(s.penaltyFraction * 100).toFixed(1)}%`
+    );
+    console.log(
+        `  │ Phase consistency:  mean=${s.phaseConsistencyMean.toFixed(2)}h  p90=${s.phaseConsistencyP90.toFixed(2)}h  max=${s.phaseConsistencyMax.toFixed(2)}h`
+    );
+    console.log(
+        `  │ Phase steps:  min=${s.phaseStepMin.toFixed(2)}h  max=${s.phaseStepMax.toFixed(2)}h  violations=${s.phaseStepViolations}`
     );
     console.log(`  └────────────────────────────────────────`);
 }
@@ -335,6 +357,66 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                         }
                     }
 
+                    // ── 6. Phase consistency (actual vs tau-predicted drift) ──────────────────
+                    const phaseConsistencyErrors: number[] = [];
+                    for (let i = 1; i < algoDays.length; i++) {
+                        const prev = algoDays[i - 1]!;
+                        const curr = algoDays[i]!;
+
+                        const expectedDrift = prev.localTau - 24;
+                        const actualChange = signedCircularError(midpoint(curr), midpoint(prev));
+
+                        const inconsistency = Math.abs(actualChange - expectedDrift);
+                        phaseConsistencyErrors.push(inconsistency);
+                    }
+
+                    const pcSorted = [...phaseConsistencyErrors].sort((a, b) => a - b);
+                    const phaseConsistencyMean =
+                        pcSorted.length > 0 ? pcSorted.reduce((s, e) => s + e, 0) / pcSorted.length : 0;
+                    const phaseConsistencyP90 = pcSorted.length > 0 ? percentile(pcSorted, 0.9) : 0;
+                    const phaseConsistencyMax = pcSorted.length > 0 ? pcSorted[pcSorted.length - 1]! : 0;
+
+                    // ── 7. Max window tau delta ──────────────────
+                    const maxTauDeltaWindow =
+                        windowStats.length > 0
+                            ? Math.max(...windowStats.map((w) => Math.abs((w.tauAlgo - w.tauManual) * 60)))
+                            : 0;
+
+                    // ── 8. Severe streak count (peak > 6h = half-day error) ──────────────────
+                    const severeStreakCount = streaks.filter((s) => s.peakError > 6).length;
+
+                    // ── 9. Phase step bounds check ──────────────────
+                    const PHASE_STEP_MIN = -2.0;
+                    const PHASE_STEP_MAX = 3.0;
+                    let phaseStepViolations = 0;
+                    let phaseStepMin = Infinity;
+                    let phaseStepMax = -Infinity;
+                    for (let i = 1; i < algoDays.length; i++) {
+                        const prev = algoDays[i - 1]!;
+                        const curr = algoDays[i]!;
+
+                        // Check midpoint step (circular)
+                        const midStep = signedCircularError(midpoint(curr), midpoint(prev));
+                        if (midStep < phaseStepMin) phaseStepMin = midStep;
+                        if (midStep > phaseStepMax) phaseStepMax = midStep;
+                        if (midStep < PHASE_STEP_MIN || midStep > PHASE_STEP_MAX) {
+                            phaseStepViolations++;
+                        }
+
+                        // Check start/end hour steps (unwrapped space)
+                        const startStep = curr.nightStartHour - prev.nightStartHour;
+                        if (startStep < PHASE_STEP_MIN || startStep > PHASE_STEP_MAX) {
+                            phaseStepViolations++;
+                        }
+
+                        const endStep = curr.nightEndHour - prev.nightEndHour;
+                        if (endStep < PHASE_STEP_MIN || endStep > PHASE_STEP_MAX) {
+                            phaseStepViolations++;
+                        }
+                    }
+                    if (!isFinite(phaseStepMin)) phaseStepMin = 0;
+                    if (!isFinite(phaseStepMax)) phaseStepMax = 0;
+
                     // ── Output ───────────────────────────────────────
                     const stats: GroundTruthStats = {
                         name: dataset.name,
@@ -353,11 +435,19 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                         gtShift,
                         gtTau,
                         tauDeltaMin: (algoTau - gtTau) * 60,
+                        maxTauDeltaWindow,
                         streakCount: streaks.length,
+                        severeStreakCount: streaks.filter((s) => s.peakError > 6).length,
                         maxStreakDays: streaks.length > 0 ? Math.max(...streaks.map((s) => s.days)) : 0,
                         driftPenalty: penalty.totalPenalty,
                         penaltyDays: penalty.penaltyDays,
                         penaltyFraction: penalty.penaltyFraction,
+                        phaseConsistencyMean,
+                        phaseConsistencyP90,
+                        phaseConsistencyMax,
+                        phaseStepViolations,
+                        phaseStepMin,
+                        phaseStepMax,
                         windowStats,
                         streaks,
                         algoDays: algoDays.length,
@@ -371,8 +461,15 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                     }
 
                     // Loose thresholds — tighten as algorithm improves
-                    expect(mean).toBeLessThan(3.0);
+                    expect(mean).toBeLessThan(2.5);
                     expect(p90).toBeLessThan(6.0);
+                    expect(maxTauDeltaWindow).toBeLessThan(50);
+                    expect(severeStreakCount).toBeLessThan(10);
+                    expect(penalty.totalPenalty).toBeLessThan(500);
+                    // TODO: Phase step bounds - currently all algorithms violate
+                    // The night window duration changes cause start/end to shift
+                    // even when midpoint is smooth. Need to fix algorithm output.
+                    // expect(phaseStepViolations).toBe(0);
                 });
             }
         });

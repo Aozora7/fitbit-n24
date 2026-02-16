@@ -17,10 +17,10 @@ export interface KalmanSegmentResult {
 }
 
 /**
- * Initialize state from the first few observations via weighted linear regression.
+ * Initialize state from the first few observations.
+ * Uses phase-unwrapped linear regression with prior blending for robustness.
  */
 function initializeState(observations: Map<number, Observation>, segFirstDay: number): { state: State; cov: Cov } {
-    // Collect observations within the init window
     const initObs: Observation[] = [];
     for (let d = segFirstDay; d <= segFirstDay + INIT_WINDOW * 2 && initObs.length < INIT_WINDOW; d++) {
         const obs = observations.get(d);
@@ -28,7 +28,6 @@ function initializeState(observations: Map<number, Observation>, segFirstDay: nu
     }
 
     if (initObs.length === 0) {
-        // No observations at all — use priors
         return {
             state: [12, DEFAULT_DRIFT_PRIOR],
             cov: [INIT_P_PHASE * 4, 0, INIT_P_DRIFT * 4],
@@ -36,28 +35,48 @@ function initializeState(observations: Map<number, Observation>, segFirstDay: nu
     }
 
     if (initObs.length === 1) {
-        // Single observation — use it for phase, prior for drift
         return {
             state: [initObs[0]!.midpointHour, DEFAULT_DRIFT_PRIOR],
             cov: [INIT_P_PHASE, 0, INIT_P_DRIFT],
         };
     }
 
-    // Fit weighted linear regression: midpoint = intercept + slope * dayNumber
+    initObs.sort((a, b) => a.dayNumber - b.dayNumber);
+
+    const firstObs = initObs[0]!;
+    const unwrappedYs: number[] = [firstObs.midpointHour];
+    let prevY = firstObs.midpointHour;
+    let prevX = firstObs.dayNumber;
+
+    for (let i = 1; i < initObs.length; i++) {
+        const obs = initObs[i]!;
+        const dx = obs.dayNumber - prevX;
+        const expectedY = prevY + dx * DEFAULT_DRIFT_PRIOR;
+        let y = obs.midpointHour;
+        while (y - expectedY > 12) y -= 24;
+        while (expectedY - y > 12) y += 24;
+        unwrappedYs.push(y);
+        prevY = y;
+        prevX = obs.dayNumber;
+    }
+
     let sw = 0,
         sx = 0,
         sy = 0,
         sxx = 0,
-        sxy = 0;
-    for (const obs of initObs) {
-        const w = 1 / obs.R; // Weight inversely proportional to noise
+        sxy = 0,
+        syy = 0;
+    for (let i = 0; i < initObs.length; i++) {
+        const obs = initObs[i]!;
+        const w = 1 / obs.R;
         const x = obs.dayNumber;
-        const y = obs.midpointHour;
+        const y = unwrappedYs[i]!;
         sw += w;
         sx += w * x;
         sy += w * y;
         sxx += w * x * x;
         sxy += w * x * y;
+        syy += w * y * y;
     }
 
     const denom = sw * sxx - sx * sx;
@@ -72,10 +91,28 @@ function initializeState(observations: Map<number, Observation>, segFirstDay: nu
         intercept = (sy * sxx - sx * sxy) / denom;
     }
 
-    // Clamp initial slope to reasonable range
+    let r2 = 0;
+    if (syy > 0 && sw > 0) {
+        const yMean = sy / sw;
+        const ssTotal = syy - sw * yMean * yMean;
+        const ssResid =
+            sw * yMean * yMean -
+            2 * intercept * sy +
+            2 * intercept * sw * yMean +
+            syy -
+            2 * slope * sxy +
+            slope * slope * sxx +
+            intercept * intercept * sw;
+        if (ssTotal > 1e-10) {
+            r2 = Math.max(0, 1 - ssResid / ssTotal);
+        }
+    }
+
+    const priorWeight = Math.max(0.3, 1 - r2);
+    slope = priorWeight * DEFAULT_DRIFT_PRIOR + (1 - priorWeight) * slope;
+
     slope = Math.max(-1.5, Math.min(3.0, slope));
 
-    // Initial phase at segFirstDay
     const phase0 = intercept + slope * segFirstDay;
 
     return {

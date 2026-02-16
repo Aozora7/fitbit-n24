@@ -2,8 +2,8 @@
 
 ```
 cli/
-  analyze.ts                        CLI entry point: read JSON file, run circadian analysis, print stats
-  analyze_period.ts                 Diagnostic script for analyzing a specific date range in a JSON file
+  analyze.ts                        CLI entry point: read JSON file, run circadian analysis, print stats (optional algorithmId arg)
+  analyze_period.ts                 Diagnostic script for analyzing a specific date range (optional algorithmId arg, regression-specific diagnostics when using regression-v1)
   compare.ts                        Compare multiple circadian algorithms on the same dataset
 
 src/
@@ -37,13 +37,15 @@ src/
     actogramData.ts                 Actogram row building (buildActogramRows, buildTauRows)
     overlayPath.ts                  Manual overlay types (OverlayControlPoint, OverlayDay) + interpolateOverlay()
     circadian/
-      index.ts                     Public API: analyzeCircadian(), analyzeWithAlgorithm(), type exports
+      index.ts                     Public API: analyzeWithAlgorithm(), DEFAULT_ALGORITHM_ID, type exports, algorithm registration
       types.ts                     Base types: CircadianAnalysis, CircadianDay, GAP_THRESHOLD_DAYS (algorithm-independent)
       registry.ts                  Algorithm registry: registerAlgorithm(), getAlgorithm(), listAlgorithms()
       segments.ts                  Segment splitting for data gaps (splitIntoSegments)
       regression/
         index.ts                   Algorithm entry point: analyzeCircadian(), _internals barrel for testing
         types.ts                   Regression-specific types: RegressionAnalysis, Anchor, AnchorPoint, constants
+        __tests__/
+          regression.internals.test.ts  Unit tests for regression internal helpers (classifyAnchor, regression, unwrapping)
         regression.ts              Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window
         unwrap.ts                  Seed-based phase unwrapping with regression/pairwise branch resolution
         anchors.ts                 Anchor classification, midpoint computation
@@ -70,13 +72,14 @@ src/
     __tests__/
       fixtures/
         synthetic.ts                Seeded synthetic SleepRecord generator (configurable tau, noise, gaps)
+        visualize.ts                Test visualization: generateVizHtml(), maybeSaveViz() — self-contained HTML actograms (VIZ=1)
         loadRealData.ts             Generic real data loader: `loadRealData(fileName)` loads from test-data/, `hasRealData(fileName)` checks existence
         loadGroundTruth.ts          Ground-truth dataset loader (iterates test-data/ subdirs, loads sleep+overlay pairs)
         driftPenalty.ts             Hard drift limit assertions + penalty scoring for prolonged extreme drift
-      circadian.internals.test.ts   Unit tests for circadian internal helpers (classifyAnchor, regression, unwrapping)
-      circadian.integration.test.ts Full pipeline tests (synthetic + real data regression)
-      circadian.scoring.test.ts   Benchmark + correctness tests (tau sweep, phase accuracy, noise/gap/outlier degradation, overlay smoothness, drift limits)
-      circadian.groundtruth.test.ts Ground-truth overlay scoring (compact GTRESULT format by default, VERBOSE=1 for full diagnostics)
+      circadian.integration.test.ts Full pipeline tests on all algorithms (synthetic + real data regression-specific)
+      circadian.scoring.test.ts   Benchmark + correctness tests on all algorithms (tau sweep, phase accuracy, noise/gap/outlier degradation, overlay smoothness, drift limits; periodogram benchmark regression-only)
+      circadian.regimechange.test.ts Regime change tests on all algorithms (entrained↔N24 transitions, drift rate validation)
+      circadian.groundtruth.test.ts Ground-truth overlay scoring on all algorithms (compact GTRESULT format by default, VERBOSE=1 for full diagnostics)
       overlayPath.test.ts           Overlay interpolation tests (linear interp, phase wrapping, extrapolation)
       calculateSleepScore.test.ts   Sleep score regression model tests
       lombScargle.test.ts           Periodogram peak detection tests
