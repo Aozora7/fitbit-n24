@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { scaleLinear } from "d3-scale";
 import { useAppContext } from "../useAppContext";
-import { computeLombScargle, type PeriodogramResult } from "../models/lombScargle";
+import { computeLombScargle, buildPeriodogramAnchors, type PeriodogramResult } from "../models/lombScargle";
 
 const COLORS = {
     background: "#1e293b",
@@ -17,14 +17,13 @@ const MARGINS = { top: 24, right: 16, bottom: 36, left: 56 };
 const HEIGHT = 200;
 
 export default function Periodogram() {
-    const { circadianAnalysis, showPeriodogram } = useAppContext();
+    const { filteredRecords, showPeriodogram } = useAppContext();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const result = useMemo<PeriodogramResult>(
-        () => computeLombScargle(circadianAnalysis.anchors),
-        [circadianAnalysis.anchors]
-    );
+    const anchors = useMemo(() => buildPeriodogramAnchors(filteredRecords), [filteredRecords]);
+
+    const result = useMemo<PeriodogramResult>(() => computeLombScargle(anchors), [anchors]);
 
     const [resizeKey, setResizeKey] = useState(0);
 

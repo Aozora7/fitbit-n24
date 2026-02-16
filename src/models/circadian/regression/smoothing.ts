@@ -1,5 +1,7 @@
 // Post-hoc overlay smoothing: 3-pass jump correction and forecast re-anchoring
-import type { Anchor, CircadianDay } from "./types";
+import type { CircadianDay } from "../types";
+import type { Anchor } from "./types";
+import type { WindowResult } from "./regression";
 import {
     WINDOW_HALF,
     MIN_ANCHORS_PER_WINDOW,
@@ -8,12 +10,12 @@ import {
     SMOOTH_SIGMA,
     SMOOTH_JUMP_THRESH,
 } from "./types";
-import { gaussian, evaluateWindow, type WindowResult } from "./regression";
+import { gaussian, evaluateWindow } from "./regression";
 
 export interface SmoothingContext {
     anchors: Anchor[];
-    days: CircadianDay[]; // mutated in-place
-    rawPredictedMid: number[]; // mutated in-place
+    days: CircadianDay[];
+    rawPredictedMid: number[];
     rawConfScore: number[];
     rawIsForecast: boolean[];
     rawSlopeConf: number[];
@@ -27,15 +29,6 @@ export interface SmoothingContext {
     extraDays: number;
 }
 
-/**
- * 3-pass post-hoc smoothing of overlay predictions.
- *
- * Pass 1: Anchor-based smoothing for low-slopeConf days
- * Pass 2: Iterative jump-based prediction smoothing
- * Pass 3: Forward-bridge backward-moving overlay segments
- *
- * Then recomputes forecast days for continuity with the smoothed last data day.
- */
 export function smoothOverlay(ctx: SmoothingContext): void {
     const {
         anchors,
@@ -54,12 +47,6 @@ export function smoothOverlay(ctx: SmoothingContext): void {
         extraDays,
     } = ctx;
 
-    // Step 7: Jump-targeted overlay smoothing
-    // Only smooth days where raw predictions create a large jump (>SMOOTH_JUMP_THRESH)
-    // from neighbors. This fixes window-expansion artifacts during fragmented sleep
-    // without affecting well-estimated days' drift tracking.
-
-    // 7a: Pairwise-unwrap raw predictions to remove 24h steps
     for (let i = 1; i <= localTotalDays; i++) {
         if (rawIsForecast[i] || rawIsForecast[i - 1]) continue;
         let curr = rawPredictedMid[i]!;
@@ -69,17 +56,12 @@ export function smoothOverlay(ctx: SmoothingContext): void {
         rawPredictedMid[i] = curr;
     }
 
-    // 7b: Two-pass smoothing
-    // Pass 1: Anchor-based smoothing for low-confidence days (fixes slope)
-    // Pass 2: Jump-based prediction smoothing (fixes remaining discontinuities)
-
     const smoothGlobalFit = evaluateWindow(
         anchors,
         anchors[Math.floor(anchors.length / 2)]!.dayNumber,
         anchors[anchors.length - 1]!.dayNumber
     );
 
-    // Pass 1: Anchor-based smoothing for low-slopeConf days
     const SLOPE_CONF_THRESH = 0.4;
     const needsAnchorSmooth: boolean[] = new Array(localTotalDays + 1).fill(false);
     for (let i = 0; i <= localTotalDays; i++) {
@@ -122,11 +104,8 @@ export function smoothOverlay(ctx: SmoothingContext): void {
             wSum += w;
         }
 
-        // Require meaningful anchor coverage (not just a single distant anchor)
         if (wSum > 0.5) {
             const anchorMid = trend_i + wResidualSum / wSum;
-            // Blend: core days (distToCore=0) get full anchor weight;
-            // margin days fade linearly to 0 at SMOOTH_MARGIN
             const anchorWeight = Math.max(0, 1 - distToCore[i]! / SMOOTH_MARGIN);
             const smoothedMid = anchorWeight * anchorMid + (1 - anchorWeight) * rawPredictedMid[i]!;
             rawPredictedMid[i] = smoothedMid;
@@ -137,9 +116,6 @@ export function smoothOverlay(ctx: SmoothingContext): void {
         }
     }
 
-    // Pass 2: Iterative jump-based prediction smoothing
-    // Repeatedly detect and smooth jumps until none >SMOOTH_JUMP_THRESH remain.
-    // Usually converges in 1-2 iterations; cap at 3 for safety.
     for (let iter = 0; iter < 3; iter++) {
         for (let i = 1; i <= localTotalDays; i++) {
             if (rawIsForecast[i] || rawIsForecast[i - 1]) continue;
@@ -216,36 +192,23 @@ export function smoothOverlay(ctx: SmoothingContext): void {
         }
     }
 
-    // Pass 3: Forward-bridge backward-moving overlay segments
-    // When disrupted sleep pulls the overlay backward (against the local
-    // drift direction) for several consecutive days, replace with forward
-    // circular interpolation between entry and exit points. The circadian
-    // clock doesn't run backward, so backward overlay movement indicates
-    // the regression is tracking off-rhythm sleep rather than the phase.
     {
-        const BACKWARD_DEVIATION = 0.5; // flag if daily shift deviates 0.5h+ backward from expected
-        const BACKWARD_MIN_RUN = 3; // min consecutive backward days to trigger bridging
-        const MAX_BRIDGE_RATE = 3; // max h/day interpolation rate (sanity check)
-        const MIN_CONFIDENCE = 0.3; // only bridge days with sufficient confidence in their local drift
+        const BACKWARD_DEVIATION = 0.5;
+        const BACKWARD_MIN_RUN = 3;
+        const MAX_BRIDGE_RATE = 3;
+        const MIN_CONFIDENCE = 0.3;
 
         const normMids: number[] = days.map((d) => ((((d.nightStartHour + d.nightEndHour) / 2) % 24) + 24) % 24);
 
-        // Use local drift estimates for context-aware bridging.
-        // This prevents false bridging when short entrained segments (tau=24.0)
-        // are surrounded by longer N24 segments (tau>24.0).
         const getExpectedDelta = (i: number): number => {
             if (i <= 0 || i >= days.length) return 0;
-            // Average the local drift of consecutive days for smoother transitions
             return (days[i - 1]!.localDrift + days[i]!.localDrift) / 2;
         };
 
-        // Flag days where the overlay moves backward relative to LOCAL expected drift
         const isBackward: boolean[] = new Array(days.length).fill(false);
         for (let i = 1; i < days.length; i++) {
             if (days[i]!.isForecast || days[i - 1]!.isForecast) continue;
 
-            // Skip bridging for low-confidence days (prevents false bridging
-            // in segments with insufficient anchor coverage)
             const minConf = Math.min(days[i - 1]!.confidenceScore, days[i]!.confidenceScore);
             if (minConf < MIN_CONFIDENCE) continue;
 
@@ -253,10 +216,6 @@ export function smoothOverlay(ctx: SmoothingContext): void {
             if (delta > 12) delta -= 24;
             if (delta < -12) delta += 24;
 
-            // Clamp expected delta to >= 0: the circadian clock doesn't run backward,
-            // so negative local drift is always estimation noise from fragmented sleep.
-            // Without clamping, negative localDrift causes the bridging to "expect"
-            // backward movement, preventing detection of genuine overlay reversal.
             const expectedDelta = Math.max(0, getExpectedDelta(i));
             const isBackwardMove = delta < expectedDelta - BACKWARD_DEVIATION;
 
@@ -265,7 +224,6 @@ export function smoothOverlay(ctx: SmoothingContext): void {
             }
         }
 
-        // Find contiguous backward runs and forward-interpolate
         let bRunStart = -1;
         for (let i = 0; i <= days.length; i++) {
             const back = i < days.length && isBackward[i];
@@ -279,12 +237,8 @@ export function smoothOverlay(ctx: SmoothingContext): void {
                         const exitMid = normMids[exitIdx]!;
                         const span = exitIdx - entryIdx;
 
-                        // Always interpolate forward (positive direction).
-                        // The circadian clock doesn't run backward, so backward
-                        // bridge direction from negative localDrift is always noise.
                         const forwardDist = (((exitMid - entryMid) % 24) + 24) % 24;
 
-                        // Sanity: skip if interpolation rate is implausible
                         if (Math.abs(forwardDist) / span <= MAX_BRIDGE_RATE && forwardDist !== 0) {
                             for (let j = bRunStart; j < exitIdx; j++) {
                                 if (days[j]!.isForecast) continue;
@@ -302,16 +256,12 @@ export function smoothOverlay(ctx: SmoothingContext): void {
         }
     }
 
-    // Recompute forecast days to maintain continuity with the (now smoothed)
-    // last data day.
     if (extraDays > 0) {
         const lastDataMid =
             ((((days[localDataDays]!.nightStartHour + days[localDataDays]!.nightEndHour) / 2) % 24) + 24) % 24;
         const edgeSlopeConf =
             Math.min(1, edgeResult.pointsUsed / (medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10)) *
             (1 - Math.min(1, edgeResult.residualMAD / 4));
-        // Use regional fit centered on last data day for fallback (not global, which may encode
-        // a different regime like DSPD). Fall back to global only if regional is implausible.
         const forecastRegionalFit = evaluateWindow(anchors, segFirstDay + localDataDays, REGULARIZATION_HALF);
         const useForecastRegional =
             forecastRegionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&

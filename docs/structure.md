@@ -4,6 +4,7 @@
 cli/
   analyze.ts                        CLI entry point: read JSON file, run circadian analysis, print stats
   analyze_period.ts                 Diagnostic script for analyzing a specific date range in a JSON file
+  compare.ts                        Compare multiple circadian algorithms on the same dataset
 
 src/
   main.tsx                          Entry point, provider hierarchy (AuthProvider -> AppProvider -> App)
@@ -36,16 +37,21 @@ src/
     actogramData.ts                 Actogram row building (buildActogramRows, buildTauRows)
     overlayPath.ts                  Manual overlay types (OverlayControlPoint, OverlayDay) + interpolateOverlay()
     circadian/
-      index.ts                     analyzeCircadian() orchestrator + public type re-exports + _internals barrel
-      types.ts                     All interfaces (CircadianDay, AnchorPoint, etc.), type aliases, constants
-      regression.ts                Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window evaluation
-      unwrap.ts                    Seed-based phase unwrapping with regression/pairwise branch resolution
-      anchors.ts                   Anchor classification, midpoint computation, segment splitting, median spacing
-      smoothing.ts                 3-pass post-hoc overlay smoothing (anchor-based, jump-based, forward-bridge) + forecast re-anchoring
-      analyzeSegment.ts            Per-segment analysis pipeline (anchor building, unwrap, outlier rejection, sliding window, smoothing)
-      mergeSegments.ts             Merge independently-analyzed segments into single CircadianAnalysis result
+      index.ts                     Public API: analyzeCircadian(), analyzeWithAlgorithm(), type exports
+      types.ts                     Base types: CircadianAnalysis, CircadianDay, GAP_THRESHOLD_DAYS (algorithm-independent)
+      registry.ts                  Algorithm registry: registerAlgorithm(), getAlgorithm(), listAlgorithms()
+      segments.ts                  Segment splitting for data gaps (splitIntoSegments)
+      regression/
+        index.ts                   Algorithm entry point: analyzeCircadian(), _internals barrel for testing
+        types.ts                   Regression-specific types: RegressionAnalysis, Anchor, AnchorPoint, constants
+        regression.ts              Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window
+        unwrap.ts                  Seed-based phase unwrapping with regression/pairwise branch resolution
+        anchors.ts                 Anchor classification, midpoint computation
+        smoothing.ts               3-pass post-hoc overlay smoothing + forecast re-anchoring
+        analyzeSegment.ts          Per-segment analysis pipeline
+        mergeSegments.ts           Merge independently-analyzed segments into single result
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)
-    lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test)
+    lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test) + buildPeriodogramAnchors()
     __tests__/
       fixtures/
         synthetic.ts                Seeded synthetic SleepRecord generator (configurable tau, noise, gaps)
@@ -64,7 +70,7 @@ src/
   components/
     Header.tsx                      App header: record count, circadian stats (tau, drift, shift, avg sleep), privacy modal
     DataToolbar.tsx                  Auth buttons, fetch/stop, import/export, clear cache
-    VisualizationControls.tsx        Display toggles (double plot, circadian, periodogram, schedule), color mode, row height/width, forecast
+    VisualizationControls.tsx        Display toggles (double plot, circadian, periodogram, schedule), algorithm selector, color mode, row height/width, forecast
     DateRangeSlider.tsx              Dual-range date filter with year marks
     Periodogram.tsx                  Canvas-based periodogram chart (line plot, significance threshold, peak marker)
     Legend.tsx                       Color legend (stages mode or quality gradient mode)

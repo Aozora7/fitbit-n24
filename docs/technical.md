@@ -86,6 +86,7 @@ Auto-detects multiple JSON structures:
 3. **Flat array of records**: `[ { "dateOfSleep": "...", ... }, ... ]`
 
 For each record, format detection:
+
 - `"durationMs"` present → internal exported format (re-hydrate Date objects)
 - `"levels"` or `"type"` present → v1.2 API format
 - Otherwise → error (v1 format is not supported)
@@ -118,10 +119,10 @@ The app caches raw API records in IndexedDB for fast reload:
 - Object store: `"sleepRecords"` with keyPath `"logId"`
 - Compound index: `["_userId", "dateOfSleep"]` for per-user queries
 - Functions:
-  - `getCachedRecords(userId)`: Returns all cached records for a user
-  - `getLatestDateOfSleep(userId)`: Returns the most recent `dateOfSleep` in the cache (used for incremental fetch)
-  - `putRecords(userId, records)`: Writes records to the store (stamps each with `_userId`)
-  - `clearUserCache(userId)`: Deletes all records for a user
+    - `getCachedRecords(userId)`: Returns all cached records for a user
+    - `getLatestDateOfSleep(userId)`: Returns the most recent `dateOfSleep` in the cache (used for incremental fetch)
+    - `putRecords(userId, records)`: Writes records to the store (stamps each with `_userId`)
+    - `clearUserCache(userId)`: Deletes all records for a user
 - Gracefully degrades if IndexedDB is unavailable (returns empty results, logs warnings)
 
 ## Authentication
@@ -169,12 +170,14 @@ A sleep record from 23:00 to 07:00 produces two blocks: one on day 1 covering `[
 `useActogramRenderer.ts` draws everything in a single `useEffect` that runs when rows, circadian data, or config changes.
 
 ### Coordinate system
+
 - Y axis: each row is `rowHeight` CSS pixels tall, starting at `topMargin`
 - X axis: `d3-scale`'s `scaleLinear` maps `[0, hoursPerRow]` to `[leftMargin, canvasWidth - rightMargin]`, where `hoursPerRow` is `baseHours` (24 or custom tau) doubled if in double-plot mode
 - The canvas is sized at `devicePixelRatio` scale for sharp rendering, then drawn in CSS pixel coordinates after a `ctx.scale(dpr, dpr)` call
 - In tau mode, left margin is widened to 110px to accommodate `YYYY-MM-DD HH:mm` labels
 
 ### Drawing order
+
 1. Background fill
 2. Hour grid lines (every 6 hours)
 3. Hour labels at top (absolute hours in calendar mode, relative `+0, +6, ...` offsets in tau mode)
@@ -195,12 +198,13 @@ Three rendering paths based on color mode and data availability:
 3. **Solid fallback**: A single light blue rectangle for blocks too narrow for stage detail or records without stage data.
 
 ### Stage colors
-| Stage | Color | Hex |
-|---|---|---|
-| Deep | Dark blue | `#1e40af` |
-| Light | Blue | `#60a5fa` |
-| REM | Cyan | `#06b6d4` |
-| Wake | Red | `#ef4444` |
+
+| Stage | Color     | Hex       |
+| ----- | --------- | --------- |
+| Deep  | Dark blue | `#1e40af` |
+| Light | Blue      | `#60a5fa` |
+| REM   | Cyan      | `#06b6d4` |
+| Wake  | Red       | `#ef4444` |
 
 ### Double-plot mode
 
@@ -217,13 +221,42 @@ In double-plot mode, each row displays 48 hours: the left half shows day D (hour
 The topmost row (`i = 0`) has no right-half data for sleep/schedule since there is no `rows[-1]`.
 
 ### Tau mode
+
 When the row width is set to a custom period (e.g. 24.5h), rows are built by `buildTauRows()` instead of `buildActogramRows()`. Each row has a `startMs` timestamp used for absolute positioning of sleep blocks, circadian overlay, and schedule overlay. Hour labels show relative offsets (`+0`, `+6`, ...) instead of clock times.
 
 ## Circadian period estimation
 
-`analyzeCircadian()` in `models/circadian/index.ts` estimates the free-running circadian period using a multi-stage pipeline. The algorithm is split across focused modules: `types.ts` (interfaces/constants), `regression.ts` (weighted regression, Gaussian kernel, sliding window), `unwrap.ts` (seed-based phase unwrapping), `anchors.ts` (anchor classification, segment splitting), `smoothing.ts` (3-pass overlay smoothing), `analyzeSegment.ts` (per-segment pipeline), and `mergeSegments.ts` (segment merging).
+The circadian analysis module supports pluggable algorithms via a registry system. The default algorithm (`regression-v1`) is implemented in `models/circadian/regression/` and uses a multi-stage pipeline. The module is organized into algorithm-independent code at the top level (`types.ts`, `registry.ts`, `index.ts`) and algorithm-specific code in subdirectories.
 
-### Step 1: Quality scoring
+### Algorithm registry
+
+Algorithms implement the `CircadianAlgorithm` interface with `id`, `name`, `description`, and `analyze()` method. They register via `registerAlgorithm()` at module load time. The public API provides:
+
+- `analyzeCircadian(records, extraDays)` — runs the default algorithm (backwards compatible)
+- `analyzeWithAlgorithm(algorithmId, records, extraDays)` — runs a specific algorithm
+- `listAlgorithms()` — returns all registered algorithms
+
+The base `CircadianAnalysis` type contains only common fields (`globalTau`, `days`, etc.). Algorithm-specific data (e.g., `anchors`, `anchorTierCounts` for the regression algorithm) is in `RegressionAnalysis` which extends the base type.
+
+### Module structure
+
+```
+src/models/circadian/
+  index.ts           Public API: analyzeCircadian(), analyzeWithAlgorithm(), type exports
+  types.ts           Base types: CircadianAnalysis, CircadianDay
+  registry.ts        Algorithm registry: registerAlgorithm(), getAlgorithm(), listAlgorithms()
+  regression/
+    index.ts         Algorithm entry point: analyzeCircadian(), _internals barrel
+    types.ts         Regression-specific types: RegressionAnalysis, Anchor, AnchorPoint, constants
+    regression.ts    Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window
+    unwrap.ts        Seed-based phase unwrapping with regression/pairwise branch resolution
+    anchors.ts       Anchor classification, midpoint computation, segment splitting
+    smoothing.ts     3-pass post-hoc overlay smoothing + forecast re-anchoring
+    analyzeSegment.ts Per-segment analysis pipeline
+    mergeSegments.ts Merge independently-analyzed segments into single result
+```
+
+### Weighted Regression Algorithm: Step 1: Quality scoring
 
 Each sleep record receives a quality score (0-1) via `calculateSleepScore()` in `models/calculateSleepScore.ts`. This uses a regression model with weights fitted to a dataset of Fitbit records with known quality scores:
 
@@ -232,6 +265,7 @@ score = 66.607 + 9.071 * durationScore + 0.111 * deepPlusRemMinutes - 102.527 * 
 ```
 
 Where:
+
 - **durationScore** (0-1): Piecewise function of `minutesAsleep/60` — ramps 0→0.5 for 0-4h, 0.5→1.0 for 4-7h, plateau at 7-9h, declines to 0 for 9-12h
 - **deepPlusRemMinutes**: `deep + rem` minutes from stage summary. For classic records without stage data, estimated as 39% of `minutesAsleep`
 - **wakePct**: `wake minutes / timeInBed` (or `minutesAwake / timeInBed` for classic records)
@@ -242,11 +276,11 @@ The raw score is clamped to 0-100, rounded, then divided by 100 to produce a 0-1
 
 Records are classified into three tiers based on duration and quality score:
 
-| Tier | Duration | Quality | Base Weight | Purpose |
-|---|---|---|---|---|
-| A | >= 7h | >= 0.75 | 1.0 | High-confidence circadian sleep |
-| B | >= 5h | >= 0.60 | 0.4 | Moderate-confidence |
-| C | >= 4h | >= 0.40 | 0.1 | Gap-fill only |
+| Tier | Duration | Quality | Base Weight | Purpose                         |
+| ---- | -------- | ------- | ----------- | ------------------------------- |
+| A    | >= 7h    | >= 0.75 | 1.0         | High-confidence circadian sleep |
+| B    | >= 5h    | >= 0.60 | 0.4         | Moderate-confidence             |
+| C    | >= 4h    | >= 0.40 | 0.1         | Gap-fill only                   |
 
 The effective weight for each anchor is `baseWeight * quality * durFactor`, where `durFactor = min(1, (durationHours - 4) / 5)`. This means longer, higher-quality sleeps receive more influence in the regression. Naps (`isMainSleep = false`) receive an additional 0.15× weight multiplier — they still contribute data but cannot dominate regression or unwrapping. This prevents false phase jumps when a main sleep and a nap on the same day both qualify as anchors.
 
@@ -296,18 +330,21 @@ The circadian overlay uses the day's confidence score to modulate alpha: `0.1 + 
 After all per-day predictions are computed, a two-pass post-hoc smoothing corrects artifacts from the sliding window approach.
 
 **Pass 1 — Anchor-based smoothing** (for low-confidence regions):
+
 1. Flag days where `slopeConf < 0.4` (fragmented/uncertain windows), plus ±5 day margins for smooth transitions.
 2. For flagged days with sufficient nearby anchors (cumulative weight > 0.5), compute a smoothed midpoint from actual anchor sleep positions: residuals from global trend, Gaussian-weighted by distance (sigma=3) and anchor weight over ±7 days.
 3. Blend the anchor-smoothed result with the raw prediction using distance-to-core fading: core days get full anchor weight, margin days fade linearly to zero.
 4. This pulls the overlay toward where sleep actually occurs during fragmented periods, capturing local slope changes that the global trend misses.
 
 **Pass 2 — Iterative jump smoothing** (for remaining discontinuities):
+
 1. **Pairwise unwrap** modified predictions to remove 24h steps.
 2. **Jump detection**: Flag days with circular jump > **2h** to neighbors, plus ±5 day margins.
 3. **Prediction-based residual smoothing**: Gaussian-weighted average of neighboring predictions' residuals from global trend (`sigma=3`, ±7 days).
 4. Iterate up to 3 times until no jumps exceed the threshold.
 
 **Pass 3 — Forward-bridge backward-moving segments** (for sleep disruptions):
+
 1. Compute normalized overlay midpoints and circular day-to-day deltas.
 2. For each day, compute the expected drift from the average of neighboring `localDrift` values, clamped to >= 0 (the circadian clock doesn't run backward). Flag days where the daily shift deviates **0.5h+** backward from this expected drift. Only consider days with sufficient confidence (`MIN_CONFIDENCE = 0.3`).
 3. Find contiguous runs of **3+ backward days**.
@@ -329,6 +366,7 @@ When forecast days are requested, the regression from the last data day (the "ed
 ### Output
 
 `CircadianAnalysis` contains:
+
 - `globalTau` / `globalDailyDrift`: Derived from weighted linear regression on unwrapped overlay midpoints (matches the visible overlay drift rate)
 - `anchors[]`: Array of `AnchorPoint` with `dayNumber`, `midpointHour`, `weight`, `tier`, `date`
 - `anchorCount` / `anchorTierCounts`: How many anchors in each tier
@@ -340,39 +378,39 @@ When forecast days are requested, the regression from the last data day (the "ed
 
 All locations below are relative to `src/models/circadian/`.
 
-| Constant                        | Value                                                                                                                     | Location                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| Segment gap threshold           | >14 days between records triggers segment split                                                                           | `types.ts`                |
-| Anchor tier A threshold         | ≥7h duration, ≥0.75 quality                                                                                               | `anchors.ts`              |
-| Anchor tier B threshold         | ≥5h duration, ≥0.60 quality                                                                                               | `anchors.ts`              |
-| Anchor tier C threshold         | ≥4h duration, ≥0.40 quality                                                                                               | `anchors.ts`              |
-| Nap weight multiplier           | 0.15 (applied to `!isMainSleep`)                                                                                          | `anchors.ts`              |
-| Tier C inclusion trigger        | Max A+B gap > 14 days                                                                                                     | `analyzeSegment.ts`       |
-| Sliding window half-width       | 21 days (42-day window)                                                                                                   | `types.ts`                |
-| Max window half-width           | 60 days (120-day window)                                                                                                  | `types.ts`                |
-| Min anchors per window          | 6                                                                                                                         | `types.ts`                |
-| Gaussian sigma                  | 14 days                                                                                                                   | `types.ts`                |
-| Outlier threshold               | 8 hours                                                                                                                   | `types.ts`                |
-| Seed search half-width          | 21 days                                                                                                                   | `types.ts`                |
-| Min seed anchors                | 4                                                                                                                         | `types.ts`                |
-| Expansion lookback              | 30 days                                                                                                                   | `types.ts`                |
-| Regularization half-width       | 60 days (regional slope fallback window)                                                                                  | `types.ts`                |
-| Snap branch conflict            | Prefer pairwise when nearest ≤7 days and diff <6h                                                                         | `unwrap.ts`               |
-| Robust regression               | IRLS + Tukey bisquare, k=4.685, 5 iterations                                                                              | `regression.ts`           |
-| Slope regularization            | slopeConf = density × (1 - residualMAD/4); blend toward regional fit (falls back to global if regional slope implausible) | `analyzeSegment.ts`       |
-| Centroid extrapolation          | predictedMid = centroidPred + regularizedSlope × (d - weightedMeanX)                                                     | `analyzeSegment.ts`       |
-| Forecast confidence decay       | exp(-0.1 \* daysFromEdge)                                                                                                 | `analyzeSegment.ts`       |
-| Smoothing half-width            | 7 days (±7 day neighborhood)                                                                                              | `types.ts`                |
-| Smoothing sigma                 | 3 days (Gaussian kernel for smoothing weights)                                                                            | `types.ts`                |
-| Smoothing jump threshold        | 2h (only smooth days with >2h jump to neighbor)                                                                           | `types.ts`                |
-| Anchor smooth density threshold | 0.4 (anchor-smooth days with density below this)                                                                          | `smoothing.ts`            |
-| Anchor smooth min weight        | 0.5 (require meaningful anchor coverage)                                                                                  | `smoothing.ts`            |
-| Smoothing margin                | 5 days (fade transition at smoothed region boundaries)                                                                    | `smoothing.ts`            |
-| Regime change MAD gate          | residual MAD < 2.0h (only boost confidence for clean fits)                                                                | `analyzeSegment.ts`       |
-| Slope clamp                     | regularizedSlope >= 0 (tau >= 24.0h, circadian clock doesn't run backward)                                                | `analyzeSegment.ts`       |
-| Backward bridge deviation       | 0.5h (flag if daily shift deviates 0.5h+ backward from expected)                                                         | `smoothing.ts`            |
-| Backward bridge min run         | 3 days (min consecutive backward days to trigger bridging)                                                                | `smoothing.ts`            |
-| Backward bridge max rate        | 3h/day (max interpolation rate sanity check)                                                                              | `smoothing.ts`            |
+| Constant                        | Value                                                                                                                     | Location                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Segment gap threshold           | >14 days between records triggers segment split                                                                           | `types.ts`                     |
+| Anchor tier A threshold         | ≥7h duration, ≥0.75 quality                                                                                               | `regression/anchors.ts`        |
+| Anchor tier B threshold         | ≥5h duration, ≥0.60 quality                                                                                               | `regression/anchors.ts`        |
+| Anchor tier C threshold         | ≥4h duration, ≥0.40 quality                                                                                               | `regression/anchors.ts`        |
+| Nap weight multiplier           | 0.15 (applied to `!isMainSleep`)                                                                                          | `regression/anchors.ts`        |
+| Tier C inclusion trigger        | Max A+B gap > 14 days                                                                                                     | `regression/analyzeSegment.ts` |
+| Sliding window half-width       | 21 days (42-day window)                                                                                                   | `regression/types.ts`          |
+| Max window half-width           | 60 days (120-day window)                                                                                                  | `regression/types.ts`          |
+| Min anchors per window          | 6                                                                                                                         | `regression/types.ts`          |
+| Gaussian sigma                  | 14 days                                                                                                                   | `regression/types.ts`          |
+| Outlier threshold               | 8 hours                                                                                                                   | `regression/types.ts`          |
+| Seed search half-width          | 21 days                                                                                                                   | `regression/types.ts`          |
+| Min seed anchors                | 4                                                                                                                         | `regression/types.ts`          |
+| Expansion lookback              | 30 days                                                                                                                   | `regression/types.ts`          |
+| Regularization half-width       | 60 days (regional slope fallback window)                                                                                  | `regression/types.ts`          |
+| Snap branch conflict            | Prefer pairwise when nearest ≤7 days and diff <6h                                                                         | `regression/unwrap.ts`         |
+| Robust regression               | IRLS + Tukey bisquare, k=4.685, 5 iterations                                                                              | `regression/regression.ts`     |
+| Slope regularization            | slopeConf = density × (1 - residualMAD/4); blend toward regional fit (falls back to global if regional slope implausible) | `regression/analyzeSegment.ts` |
+| Centroid extrapolation          | predictedMid = centroidPred + regularizedSlope × (d - weightedMeanX)                                                      | `regression/analyzeSegment.ts` |
+| Forecast confidence decay       | exp(-0.1 \* daysFromEdge)                                                                                                 | `regression/analyzeSegment.ts` |
+| Smoothing half-width            | 7 days (±7 day neighborhood)                                                                                              | `regression/types.ts`          |
+| Smoothing sigma                 | 3 days (Gaussian kernel for smoothing weights)                                                                            | `regression/types.ts`          |
+| Smoothing jump threshold        | 2h (only smooth days with >2h jump to neighbor)                                                                           | `regression/types.ts`          |
+| Anchor smooth density threshold | 0.4 (anchor-smooth days with density below this)                                                                          | `regression/smoothing.ts`      |
+| Anchor smooth min weight        | 0.5 (require meaningful anchor coverage)                                                                                  | `regression/smoothing.ts`      |
+| Smoothing margin                | 5 days (fade transition at smoothed region boundaries)                                                                    | `regression/smoothing.ts`      |
+| Regime change MAD gate          | residual MAD < 2.0h (only boost confidence for clean fits)                                                                | `regression/analyzeSegment.ts` |
+| Slope clamp                     | regularizedSlope >= 0 (tau >= 24.0h, circadian clock doesn't run backward)                                                | `regression/analyzeSegment.ts` |
+| Backward bridge deviation       | 0.5h (flag if daily shift deviates 0.5h+ backward from expected)                                                          | `regression/smoothing.ts`      |
+| Backward bridge min run         | 3 days (min consecutive backward days to trigger bridging)                                                                | `regression/smoothing.ts`      |
+| Backward bridge max rate        | 3h/day (max interpolation rate sanity check)                                                                              | `regression/smoothing.ts`      |
 
 ## Sleep score regression weights
 
@@ -388,6 +426,7 @@ All locations below are relative to `src/models/circadian/`.
 `computeLombScargle()` in `models/lombScargle.ts` computes a windowed phase coherence periodogram using the weighted Rayleigh test. Despite the filename (a historical artifact), this is not a Lomb-Scargle spectral method.
 
 For each trial period P (default 23–26h in 0.01h steps), anchor times are folded modulo P and mapped to angles on the unit circle. The squared mean resultant length R² measures phase concentration:
+
 - R² ≈ 1 → all anchors align at one phase → strong periodicity at P
 - R² ≈ 0 → anchors spread uniformly → no periodicity at P
 
@@ -418,6 +457,7 @@ Phase unwrapping on point insertion uses the nearest-branch heuristic (same as `
 ### Canvas interaction (`useOverlayEditor.ts`)
 
 A distinct edit mode (calendar mode only, disabled in tau mode) switches the canvas from tooltip behavior to editor behavior:
+
 - **Click** on plot area adds a control point at the clicked (date, hour)
 - **Mousedown** on an existing handle starts a drag (10px hit radius)
 - **Right-click** on a handle deletes it
@@ -455,15 +495,15 @@ A separate `tsconfig.cli.json` provides Node.js-compatible settings (`module: "N
 
 ## Test coverage
 
-| Test file                        | Category     | Purpose                                                                                |
-| -------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| `circadian.integration.test.ts`  | correctness  | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions        |
-| `circadian.scoring.test.ts`      | mixed        | Benchmarks (tau sweep, phase accuracy, noise/gap/outlier degradation, forecast, cumulative shift) + correctness (confidence calibration, overlay smoothness, drift limits) |
-| `circadian.regimechange.test.ts` | correctness  | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation |
-| `circadian.internals.test.ts`    | correctness  | Unit tests for internal helper functions                                               |
-| `circadian.groundtruth.test.ts`  | correctness  | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data) |
-| `overlayPath.test.ts`            | correctness  | Overlay interpolation: linear interp, phase wrapping, extrapolation                    |
-| `lombScargle.test.ts`            | correctness  | Periodogram computation tests                                                          |
+| Test file                        | Category    | Purpose                                                                                                                                                                    |
+| -------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `circadian.integration.test.ts`  | correctness | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions                                                                                            |
+| `circadian.scoring.test.ts`      | mixed       | Benchmarks (tau sweep, phase accuracy, noise/gap/outlier degradation, forecast, cumulative shift) + correctness (confidence calibration, overlay smoothness, drift limits) |
+| `circadian.regimechange.test.ts` | correctness | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation                                                                                     |
+| `circadian.internals.test.ts`    | correctness | Unit tests for internal helper functions                                                                                                                                   |
+| `circadian.groundtruth.test.ts`  | correctness | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data)                                                                                    |
+| `overlayPath.test.ts`            | correctness | Overlay interpolation: linear interp, phase wrapping, extrapolation                                                                                                        |
+| `lombScargle.test.ts`            | correctness | Periodogram computation tests                                                                                                                                              |
 
 ### Test categories
 
@@ -473,11 +513,13 @@ Tests are split into two categories:
 - **Benchmark tests** (`benchmark:` prefix) — log `BENCHMARK` lines with soft targets for machine parsing, but only hard-fail on catastrophic guards (very wide bounds, ~10-25x headroom). Enables automated algorithm optimization without false rejections.
 
 Benchmark output format (tab-separated, greppable):
+
 ```
 BENCHMARK	label	metric=value	target<threshold	PASS|REGRESSED
 ```
 
 Ground truth compact output (default, set `VERBOSE=1` for full diagnostics):
+
 ```
 GTRESULT	dataset-name	n=245	mean=1.23h	median=0.98h	p90=2.45h	bias=+0.34h	drift-agree=82%	tau-delta=+1.2min	streaks=2	max-streak=8d	penalty=0.15
 ```

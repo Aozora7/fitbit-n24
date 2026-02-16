@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { analyzeCircadian, type CircadianAnalysis } from "../circadian";
+import { analyzeCircadian, type RegressionAnalysis } from "../circadian";
 import { computeLombScargle } from "../lombScargle";
 import { generateSyntheticRecords, computeTrueMidpoint, type SyntheticOptions } from "./fixtures/synthetic";
 import { hasRealData, loadRealData } from "./fixtures/loadRealData";
@@ -25,7 +25,7 @@ interface AccuracyScore {
 }
 
 /** Score an analysis result against synthetic ground truth */
-function scoreAnalysis(analysis: CircadianAnalysis, opts: SyntheticOptions, holdoutStart?: number): AccuracyScore {
+function scoreAnalysis(analysis: RegressionAnalysis, opts: SyntheticOptions, holdoutStart?: number): AccuracyScore {
     const trueTau = opts.tauSegments
         ? opts.tauSegments.reduce((sum, s, i, arr) => {
               const prevEnd = i === 0 ? 0 : arr[i - 1]!.untilDay;
@@ -78,7 +78,7 @@ function scoreAnalysis(analysis: CircadianAnalysis, opts: SyntheticOptions, hold
 /** Print a score summary table row */
 function logScore(label: string, score: AccuracyScore): void {
     console.log(
-        `  ${label.padEnd(24)} tau±${score.tauError.toFixed(3)}  phase: mean=${score.meanPhaseError.toFixed(2)} med=${score.medianPhaseError.toFixed(2)} p90=${score.p90PhaseError.toFixed(2)}  resid=${score.residualRatio.toFixed(2)}`,
+        `  ${label.padEnd(24)} tau±${score.tauError.toFixed(3)}  phase: mean=${score.meanPhaseError.toFixed(2)} med=${score.medianPhaseError.toFixed(2)} p90=${score.p90PhaseError.toFixed(2)}  resid=${score.residualRatio.toFixed(2)}`
     );
 }
 
@@ -89,13 +89,15 @@ function logScore(label: string, score: AccuracyScore): void {
 function benchmark(label: string, metric: string, value: number, softTarget: number, lowerIsBetter = true): void {
     const pass = lowerIsBetter ? value <= softTarget : value >= softTarget;
     const op = lowerIsBetter ? "<" : ">";
-    console.log(`BENCHMARK\t${label}\t${metric}=${value.toFixed(4)}\ttarget${op}${softTarget}\t${pass ? "PASS" : "REGRESSED"}`);
+    console.log(
+        `BENCHMARK\t${label}\t${metric}=${value.toFixed(4)}\ttarget${op}${softTarget}\t${pass ? "PASS" : "REGRESSED"}`
+    );
 }
 
-function logDriftPenalty(label: string, analysis: CircadianAnalysis): void {
+function logDriftPenalty(label: string, analysis: RegressionAnalysis): void {
     const penalty = computeDriftPenalty(analysis.days);
     console.log(
-        `DRIFT_PENALTY\t${label}\tpenalty=${penalty.totalPenalty.toFixed(2)}\tdays=${penalty.penaltyDays}\tmaxStreak=${penalty.maxConsecutivePenaltyDays}\tfraction=${(penalty.penaltyFraction * 100).toFixed(1)}%`,
+        `DRIFT_PENALTY\t${label}\tpenalty=${penalty.totalPenalty.toFixed(2)}\tdays=${penalty.penaltyDays}\tmaxStreak=${penalty.maxConsecutivePenaltyDays}\tfraction=${(penalty.penaltyFraction * 100).toFixed(1)}%`
     );
 }
 
@@ -227,7 +229,9 @@ describe("benchmark: variable tau", () => {
         const meanFirst = firstHalfTaus.reduce((s, t) => s + t, 0) / firstHalfTaus.length;
         const meanSecond = secondHalfTaus.reduce((s, t) => s + t, 0) / secondHalfTaus.length;
 
-        console.log(`  variable tau: first half mean=${meanFirst.toFixed(3)}, second half mean=${meanSecond.toFixed(3)}`);
+        console.log(
+            `  variable tau: first half mean=${meanFirst.toFixed(3)}, second half mean=${meanSecond.toFixed(3)}`
+        );
         benchmark("variable-tau", "firstHalfError", Math.abs(meanFirst - 24.2), 0.1);
         benchmark("variable-tau", "secondHalfError", Math.abs(meanSecond - 24.8), 0.1);
         assertHardDriftLimits(analysis.days);
@@ -402,7 +406,7 @@ describe("correctness: confidence calibration", () => {
         const lowMean = mean(bins.low);
 
         console.log(
-            `  confidence calibration: high=${highMean.toFixed(2)} (n=${bins.high.length}), medium=${mean(bins.medium).toFixed(2)} (n=${bins.medium.length}), low=${lowMean.toFixed(2)} (n=${bins.low.length})`,
+            `  confidence calibration: high=${highMean.toFixed(2)} (n=${bins.high.length}), medium=${mean(bins.medium).toFixed(2)} (n=${bins.medium.length}), low=${lowMean.toFixed(2)} (n=${bins.low.length})`
         );
 
         if (bins.high.length >= 5 && bins.low.length >= 5) {
@@ -465,7 +469,7 @@ function overlayMid(day: { nightStartHour: number; nightEndHour: number }): numb
 }
 
 /** Compute max day-to-day midpoint jump (circular) across consecutive non-forecast, non-gap days */
-function maxOverlayJump(days: CircadianAnalysis["days"]): { maxJump: number; atDate: string } {
+function maxOverlayJump(days: RegressionAnalysis["days"]): { maxJump: number; atDate: string } {
     const data = days.filter((d) => !d.isForecast && !d.isGap);
     let maxJump = 0;
     let atDate = "";
@@ -544,7 +548,7 @@ describe("correctness: overlay smoothness (synthetic)", () => {
 
 // ── Cumulative phase shift utilities ────────────────────────────────
 
-function cumulativeShiftHours(days: CircadianAnalysis["days"]): number {
+function cumulativeShiftHours(days: RegressionAnalysis["days"]): number {
     const data = days.filter((d) => !d.isForecast && !d.isGap);
     if (data.length < 2) return 0;
     let prevMid = overlayMid(data[0]!);
@@ -596,7 +600,7 @@ describe("benchmark: cumulative phase shift (synthetic)", () => {
             const impliedTau = shiftToTau(actualShiftH, dataDays.length);
 
             console.log(
-                `  tau=${tau} ${days}d: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`,
+                `  tau=${tau} ${days}d: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`
             );
 
             assertHardDriftLimits(analysis.days);
@@ -634,7 +638,7 @@ describe("benchmark: cumulative phase shift (synthetic)", () => {
         const impliedTau = shiftToTau(actualShiftH, dataDays.length);
 
         console.log(
-            `  fragmented: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`,
+            `  fragmented: expected=${expectedShiftH.toFixed(1)}h actual=${actualShiftH.toFixed(1)}h impliedTau=${impliedTau.toFixed(4)}`
         );
 
         const ratio = actualShiftH / expectedShiftH;
@@ -667,12 +671,12 @@ describe.skipIf(!hasRealData(AOZORA_FILE))("benchmark: cumulative shift vs perio
         const periodogramDrift = peakTau - 24;
 
         console.log(
-            `  periodogram peak: ${peakTau.toFixed(4)}h (power=${periodogram.peakPower.toFixed(3)}, sig=${periodogram.significanceThreshold.toFixed(3)})`,
+            `  periodogram peak: ${peakTau.toFixed(4)}h (power=${periodogram.peakPower.toFixed(3)}, sig=${periodogram.significanceThreshold.toFixed(3)})`
         );
         console.log(`  overlay: shift=${actualShiftH.toFixed(1)}h impliedTau=${overlayTau.toFixed(4)}`);
         console.log(`  expected shift: ${expectedShiftH.toFixed(1)}h`);
         console.log(
-            `  drift comparison: overlay=${overlayDrift.toFixed(4)} periodogram=${periodogramDrift.toFixed(4)} ratio=${(overlayDrift / periodogramDrift).toFixed(3)}`,
+            `  drift comparison: overlay=${overlayDrift.toFixed(4)} periodogram=${periodogramDrift.toFixed(4)} ratio=${(overlayDrift / periodogramDrift).toFixed(3)}`
         );
 
         assertHardDriftLimits(analysis.days);

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } fro
 import { usePersistedState } from "./usePersistedState";
 import { useAuth } from "./auth/useAuth";
 import { useFitbitData } from "./data/useFitbitData";
-import { analyzeCircadian } from "./models/circadian";
+import { analyzeWithAlgorithm, DEFAULT_ALGORITHM_ID } from "./models/circadian";
 import { interpolateOverlay } from "./models/overlayPath";
 import type { OverlayControlPoint } from "./models/overlayPath";
 import { AppContext } from "./AppContextDef";
@@ -135,13 +135,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const [forecastDays, setForecastDays] = usePersistedState<number>("viz.forecastDays", 0);
+    const [circadianAlgorithmId, setCircadianAlgorithmId] = usePersistedState<string>(
+        "viz.circadianModel",
+        DEFAULT_ALGORITHM_ID
+    );
 
     const forecastDisabled = filterEnd < totalDays || !showCircadian;
     const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
 
     const circadianAnalysis = useMemo(
-        () => analyzeCircadian(filteredRecords, effectiveForecastDays),
-        [filteredRecords, effectiveForecastDays]
+        () => analyzeWithAlgorithm(circadianAlgorithmId, filteredRecords, effectiveForecastDays),
+        [circadianAlgorithmId, filteredRecords, effectiveForecastDays]
     );
 
     const manualOverlayDays = useMemo(() => {
@@ -195,6 +199,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             hasClientId,
             filteredRecords,
             circadianAnalysis,
+            circadianAlgorithmId,
+            setCircadianAlgorithmId,
             forecastDays,
             setForecastDays,
             forecastDisabled,
@@ -242,6 +248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             hasClientId,
             filteredRecords,
             circadianAnalysis,
+            circadianAlgorithmId,
             forecastDays,
             forecastDisabled,
             totalDays,

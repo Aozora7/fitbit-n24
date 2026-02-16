@@ -1,19 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { computeLombScargle } from "../lombScargle";
-import type { AnchorPoint } from "../circadian";
+import { computeLombScargle, type PeriodogramAnchor } from "../lombScargle";
 
-function makeSyntheticAnchors(tau: number, days: number, noise = 0): AnchorPoint[] {
-    const anchors: AnchorPoint[] = [];
+function makeSyntheticAnchors(tau: number, days: number, noise = 0): PeriodogramAnchor[] {
+    const anchors: PeriodogramAnchor[] = [];
     const drift = tau - 24;
 
     for (let d = 0; d < days; d++) {
-        const mid = 3 + d * drift + noise * Math.sin(d * 0.1); // deterministic "noise"
+        const mid = 3 + d * drift + noise * Math.sin(d * 0.1);
         anchors.push({
             dayNumber: d,
             midpointHour: mid,
             weight: 1.0,
-            tier: "A",
-            date: `2024-01-${String(d + 1).padStart(2, "0")}`,
         });
     }
 
@@ -49,8 +46,8 @@ describe("computeLombScargle", () => {
 
     it("returns empty for <3 anchors", () => {
         const result = computeLombScargle([
-            { dayNumber: 0, midpointHour: 3, weight: 1, tier: "A", date: "2024-01-01" },
-            { dayNumber: 1, midpointHour: 3.5, weight: 1, tier: "A", date: "2024-01-02" },
+            { dayNumber: 0, midpointHour: 3, weight: 1 },
+            { dayNumber: 1, midpointHour: 3.5, weight: 1 },
         ]);
         expect(result.points).toHaveLength(0);
         expect(result.peakPower).toBe(0);

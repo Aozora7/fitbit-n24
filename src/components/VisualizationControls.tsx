@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useAppContext } from "../useAppContext";
+import { listAlgorithms } from "../models/circadian";
 import type { ColorMode } from "./Actogram/useActogramRenderer";
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -131,7 +132,12 @@ export default function VisualizationControls() {
         setOverlayControlPoints,
         overlaySleepWindow,
         setOverlaySleepWindow,
+        circadianAlgorithmId,
+        setCircadianAlgorithmId,
     } = useAppContext();
+
+    const algorithms = listAlgorithms();
+    const selectedAlgorithm = algorithms.find((a) => a.id === circadianAlgorithmId);
 
     const [collapsed, setCollapsed] = useState(false);
 
@@ -144,6 +150,23 @@ export default function VisualizationControls() {
                         <span className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Display</span>
                         <Toggle checked={doublePlot} onChange={setDoublePlot} label="Double plot" />
                         <Toggle checked={showCircadian} onChange={setShowCircadian} label="Circadian overlay" />
+                        {showCircadian && algorithms.length > 1 && (
+                            <label className="flex items-center gap-2 text-sm text-gray-300">
+                                Algorithm
+                                <select
+                                    value={circadianAlgorithmId}
+                                    onChange={(e) => setCircadianAlgorithmId(e.target.value)}
+                                    className="rounded bg-slate-700 px-2 py-0.5 text-sm text-gray-300"
+                                    title={selectedAlgorithm?.description}
+                                >
+                                    {algorithms.map((algo) => (
+                                        <option key={algo.id} value={algo.id}>
+                                            {algo.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
                         <Toggle checked={showPeriodogram} onChange={setShowPeriodogram} label="Periodogram" />
                         <Toggle checked={showSchedule} onChange={setShowSchedule} label="Schedule overlay" />
                         {showSchedule && (

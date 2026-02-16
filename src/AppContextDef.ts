@@ -32,6 +32,8 @@ export interface AppState {
     // Filtered / derived data
     filteredRecords: SleepRecord[];
     circadianAnalysis: CircadianAnalysis;
+    circadianAlgorithmId: string;
+    setCircadianAlgorithmId: (id: string) => void;
     forecastDays: number;
     setForecastDays: (v: number) => void;
     forecastDisabled: boolean;
@@ -76,7 +78,7 @@ export interface AppState {
     setOverlayEditMode: (v: boolean) => void;
     overlayControlPoints: OverlayControlPoint[];
     setOverlayControlPoints: (
-        v: OverlayControlPoint[] | ((prev: OverlayControlPoint[]) => OverlayControlPoint[]),
+        v: OverlayControlPoint[] | ((prev: OverlayControlPoint[]) => OverlayControlPoint[])
     ) => void;
     overlaySleepWindow: number;
     setOverlaySleepWindow: (v: number) => void;

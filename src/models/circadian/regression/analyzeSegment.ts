@@ -1,18 +1,13 @@
 // Per-segment analysis pipeline: anchor building, unwrap, outlier rejection, sliding window, smoothing
-import type { SleepRecord } from "../../api/types";
-import type { Anchor, CircadianDay, SegmentResult } from "./types";
+import type { SleepRecord } from "../../../api/types";
+import type { CircadianDay } from "../types";
+import type { Anchor, SegmentResult } from "./types";
 import { WINDOW_HALF, MIN_ANCHORS_PER_WINDOW, OUTLIER_THRESHOLD_HOURS, REGULARIZATION_HALF } from "./types";
 import { evaluateWindow, evaluateWindowExpanding } from "./regression";
 import { classifyAnchor, sleepMidpointHour, computeMedianSpacing } from "./anchors";
 import { unwrapAnchorsFromSeed } from "./unwrap";
 import { smoothOverlay } from "./smoothing";
 
-/**
- * Analyze a single contiguous segment of sleep records.
- * @param records - Records within this segment (no gaps > GAP_THRESHOLD_DAYS)
- * @param extraDays - Forecast days to append (only for the last segment)
- * @param globalFirstDateMs - Epoch of the first record across all segments (for consistent day numbering)
- */
 export function analyzeSegment(
     records: SleepRecord[],
     extraDays: number,
@@ -20,7 +15,6 @@ export function analyzeSegment(
 ): SegmentResult | null {
     if (records.length === 0) return null;
 
-    // Step 1: Classify all records
     const candidates = records.map((r) => classifyAnchor(r)).filter((c): c is NonNullable<typeof c> => c !== null);
 
     if (candidates.length < 2) return null;
@@ -28,7 +22,6 @@ export function analyzeSegment(
     const tierCounts = { A: 0, B: 0, C: 0 };
     for (const c of candidates) tierCounts[c.tier]++;
 
-    // Step 2: Check if Tier C needed (max A+B gap > 14 days)
     const abDates = [...new Set(candidates.filter((c) => c.tier !== "C").map((c) => c.record.dateOfSleep))].sort();
 
     let maxGapAB = 0;
@@ -42,7 +35,6 @@ export function analyzeSegment(
 
     const activeCandidates = maxGapAB > 14 ? candidates : candidates.filter((c) => c.tier !== "C");
 
-    // Step 3: Build anchors sorted by date (using global epoch for day numbers)
     const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
     const activeIds = new Set(activeCandidates.map((c) => c.record.logId));
     const candMap = new Map(activeCandidates.map((c) => [c.record.logId, c]));
@@ -65,14 +57,12 @@ export function analyzeSegment(
 
     if (anchors.length < 2) return null;
 
-    // Step 4: Unwrap
     unwrapAnchorsFromSeed(anchors);
 
-    // Step 5: Outlier detection — global preliminary fit
     const globalFit = evaluateWindow(
         anchors,
         anchors[Math.floor(anchors.length / 2)]!.dayNumber,
-        anchors[anchors.length - 1]!.dayNumber // very wide
+        anchors[anchors.length - 1]!.dayNumber
     );
 
     const outliers = new Set<number>();
@@ -89,7 +79,6 @@ export function analyzeSegment(
         unwrapAnchorsFromSeed(anchors);
     }
 
-    // Step 6: Per-day sliding window
     const segFirstDay = Math.round(
         (new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000
     );
@@ -99,10 +88,9 @@ export function analyzeSegment(
             (new Date(sorted[sorted.length - 1]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000
         )
     );
-    const localDataDays = segLastDay - segFirstDay; // local index of last data day
+    const localDataDays = segLastDay - segFirstDay;
     const localTotalDays = localDataDays + extraDays;
 
-    // Best anchor per date for anchorSleep field
     const bestAnchorByDate = new Map<string, Anchor>();
     for (const a of anchors) {
         const existing = bestAnchorByDate.get(a.date);
@@ -115,19 +103,14 @@ export function analyzeSegment(
     const days: CircadianDay[] = [];
     const allResiduals: number[] = [];
 
-    // Parallel arrays for post-hoc smoothing (local 0-based indexing)
     const rawPredictedMid: number[] = [];
     const rawConfScore: number[] = [];
     const rawIsForecast: boolean[] = [];
     const rawSlopeConf: number[] = [];
     const rawHalfDur: number[] = [];
 
-    // Compute edge fit for forecast extrapolation: freeze the regression
-    // from the last data day so forecast days extrapolate smoothly instead
-    // of re-evaluating a window that drifts away from real data.
     const edgeResult = evaluateWindowExpanding(anchors, segLastDay);
 
-    // Base confidence for the edge fit (used to compute decaying forecast confidence)
     const edgeExpected = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
     const edgeBaseConf =
         0.4 * Math.min(1, edgeResult.pointsUsed / edgeExpected) +
@@ -158,40 +141,28 @@ export function analyzeSegment(
         const expectedPts = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
         let slopeConf = Math.min(1, result.pointsUsed / expectedPts) * (1 - Math.min(1, result.residualMAD / 4));
 
-        // Regime change detection: when local slope differs significantly from
-        // regional slope, trust the local window more to prevent blending across
-        // regime boundaries (e.g., short entrained periods surrounded by N24).
         const regionalFit = evaluateWindow(anchors, globalD, REGULARIZATION_HALF);
         const useRegional =
             regionalFit.pointsUsed >= MIN_ANCHORS_PER_WINDOW && regionalFit.slope >= -0.5 && regionalFit.slope <= 2.0;
         const fallbackSlope = useRegional ? regionalFit.slope : globalFit.slope;
 
-        // Detect potential regime change: if local and regional slopes differ by > 0.3h/day
-        // and local window has sufficient anchors, increase confidence in local slope
         const slopeDiff = Math.abs(result.slope - fallbackSlope);
-        const REGIME_CHANGE_THRESHOLD = 0.3; // 0.3h/day ≈ τ difference of 0.3h
+        const REGIME_CHANGE_THRESHOLD = 0.3;
         if (
             slopeDiff > REGIME_CHANGE_THRESHOLD &&
             result.pointsUsed >= MIN_ANCHORS_PER_WINDOW &&
             result.residualMAD < 2.0
         ) {
-            // Boost local confidence to prevent blending across regime boundaries
-            // Scale boost by how different the slopes are (more different = more boost)
             const boost = Math.min(0.4, (slopeDiff - REGIME_CHANGE_THRESHOLD) * 0.5);
             slopeConf = Math.min(1, slopeConf + boost);
         }
 
         let regularizedSlope = slopeConf * result.slope + (1 - slopeConf) * fallbackSlope;
 
-        // Safety cap: extreme slopes (>2.0 h/day = tau > 26h) are almost always
-        // estimation errors during fragmentation. Fall back to regional slope.
         if (regularizedSlope > 2.0 || regularizedSlope < -0.5) {
             regularizedSlope = fallbackSlope;
         }
 
-        // Clamp to non-negative: the circadian clock doesn't run backward (tau < 24h).
-        // Slightly negative regularized slopes arise from noisy fragmented data pulling
-        // the local regression negative even after regularization toward regional slope.
         regularizedSlope = Math.max(0, regularizedSlope);
 
         const localTau = 24 + regularizedSlope;
@@ -243,7 +214,6 @@ export function analyzeSegment(
         }
     }
 
-    // Post-hoc smoothing (3 passes + forecast recomputation)
     smoothOverlay({
         anchors,
         days,

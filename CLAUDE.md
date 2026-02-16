@@ -11,6 +11,7 @@ npm run preview   # Preview production build locally
 npm run analyze -- <file.json> # Run circadian analysis/compare on exported sleep data
 npm run analyze-period -- <file.json> [startDate] [endDate] # Analyze specific date range
 npm run split-gaps -- <file.json> # Split file with gaps into separate segment files
+npm run compare -- <file.json> [algorithmIds...] # Compare algorithms on the same data
 npm run test        # Run all tests once (vitest run)
 npm run test:watch  # Watch mode for TDD (vitest)
 VERBOSE=1 npx vitest run circadian.groundtruth  # Full diagnostic output for ground truth tests
@@ -29,31 +30,35 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 
 ## Key files
 
-| File                                             | Purpose                                                                                  |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `src/AppContextDef.ts`                           | `ScheduleEntry`, `AppState` interfaces + `AppContext` object (no component, pure defs)   |
-| `src/AppContext.tsx`                             | `AppProvider` component only — all state, derived values, viz settings                   |
-| `src/useAppContext.ts`                           | `useAppContext()` consumer hook                                                          |
-| `src/usePersistedState.ts`                       | `usePersistedState<T>()` hook — localStorage-backed state (used throughout viz settings) |
-| `src/api/types.ts`                               | `RawSleepRecordV12` (API) and `SleepRecord` (internal) type definitions                  |
-| `src/data/useFitbitData.ts`                      | Data orchestrator: cache-first fetch, export, abort                                      |
-| `src/data/sleepCache.ts`                         | IndexedDB caching (database: `fitbit-n24-cache`)                                         |
-| `src/models/circadian/`                          | Circadian period estimation module (the core algorithm)                                  |
-| `src/models/circadian/index.ts`                  | `analyzeCircadian()` orchestrator + public re-exports + `_internals` barrel              |
-| `src/models/circadian/types.ts`                  | All interfaces, type aliases, and constants                                              |
-| `src/models/circadian/regression.ts`             | Weighted/robust regression, Gaussian kernel, sliding window evaluation                   |
-| `src/models/circadian/unwrap.ts`                 | Seed-based phase unwrapping with regression/pairwise branch resolution                   |
-| `src/models/circadian/anchors.ts`                | Anchor classification, midpoint computation, segment splitting                           |
-| `src/models/circadian/smoothing.ts`              | 3-pass post-hoc overlay smoothing + forecast re-anchoring                                |
-| `src/models/circadian/analyzeSegment.ts`         | Per-segment analysis pipeline (steps 1-6 + smoothing call)                               |
-| `src/models/circadian/mergeSegments.ts`          | Merge independently-analyzed segments into single result                                 |
-| `src/models/calculateSleepScore.ts`              | Sleep quality scoring (regression model)                                                 |
-| `src/models/lombScargle.ts`                      | Phase coherence periodogram (despite the filename, uses Rayleigh test, not Lomb-Scargle) |
-| `src/models/actogramData.ts`                     | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)        |
-| `src/models/overlayPath.ts`                      | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`      |
-| `src/components/Actogram/useActogramRenderer.ts` | Canvas rendering engine for the actogram                                                 |
-| `src/components/Actogram/useOverlayEditor.ts`    | Interactive overlay editor hook (click/drag/delete control points on canvas)             |
-| `cli/analyze.ts`                                 | CLI entry point for running analysis in Node.js (debugging harness)                      |
+| File                                                | Purpose                                                                                       |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/AppContextDef.ts`                              | `ScheduleEntry`, `AppState` interfaces + `AppContext` object (no component, pure defs)        |
+| `src/AppContext.tsx`                                | `AppProvider` component only — all state, derived values, viz settings                        |
+| `src/useAppContext.ts`                              | `useAppContext()` consumer hook                                                               |
+| `src/usePersistedState.ts`                          | `usePersistedState<T>()` hook — localStorage-backed state (used throughout viz settings)      |
+| `src/api/types.ts`                                  | `RawSleepRecordV12` (API) and `SleepRecord` (internal) type definitions                       |
+| `src/data/useFitbitData.ts`                         | Data orchestrator: cache-first fetch, export, abort                                           |
+| `src/data/sleepCache.ts`                            | IndexedDB caching (database: `fitbit-n24-cache`)                                              |
+| `src/models/circadian/`                             | Circadian period estimation module (pluggable algorithms)                                     |
+| `src/models/circadian/index.ts`                     | Public API: `analyzeCircadian()`, `analyzeWithAlgorithm()`, type exports                      |
+| `src/models/circadian/types.ts`                     | Base types: `CircadianAnalysis`, `CircadianDay`, `GAP_THRESHOLD_DAYS` (algorithm-independent) |
+| `src/models/circadian/registry.ts`                  | Algorithm registry: `registerAlgorithm()`, `getAlgorithm()`, `listAlgorithms()`               |
+| `src/models/circadian/segments.ts`                  | Segment splitting for data gaps (`splitIntoSegments`)                                         |
+| `src/models/circadian/regression/index.ts`          | Weighted regression algorithm entry point + `_internals` barrel for testing                   |
+| `src/models/circadian/regression/types.ts`          | Regression-specific types: `RegressionAnalysis`, `Anchor`, `AnchorPoint`, constants           |
+| `src/models/circadian/regression/regression.ts`     | Weighted/robust regression, Gaussian kernel, sliding window evaluation                        |
+| `src/models/circadian/regression/unwrap.ts`         | Seed-based phase unwrapping with regression/pairwise branch resolution                        |
+| `src/models/circadian/regression/anchors.ts`        | Anchor classification, midpoint computation                                                   |
+| `src/models/circadian/regression/smoothing.ts`      | 3-pass post-hoc overlay smoothing + forecast re-anchoring                                     |
+| `src/models/circadian/regression/analyzeSegment.ts` | Per-segment analysis pipeline (steps 1-6 + smoothing call)                                    |
+| `src/models/circadian/regression/mergeSegments.ts`  | Merge independently-analyzed segments into single result                                      |
+| `src/models/calculateSleepScore.ts`                 | Sleep quality scoring (regression model)                                                      |
+| `src/models/lombScargle.ts`                         | Phase coherence periodogram (despite the filename, uses Rayleigh test, not Lomb-Scargle)      |
+| `src/models/actogramData.ts`                        | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)             |
+| `src/models/overlayPath.ts`                         | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`           |
+| `src/components/Actogram/useActogramRenderer.ts`    | Canvas rendering engine for the actogram                                                      |
+| `src/components/Actogram/useOverlayEditor.ts`       | Interactive overlay editor hook (click/drag/delete control points on canvas)                  |
+| `cli/analyze.ts`                                    | CLI entry point for running analysis in Node.js (debugging harness)                           |
 
 ## Conventions
 
@@ -64,6 +69,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Sleep scores are 0-1**, not 0-100 (stored as `sleepScore` on `SleepRecord`)
 - **All timestamps use local time**, not UTC — day boundaries use `Date.setHours(0,0,0,0)` and manual `getFullYear()/getMonth()/getDate()` formatting
 - **Viz settings persist** via `usePersistedState` hook (localStorage keys prefixed `viz.`, including `viz.circadianModel`)
+- **Algorithm registry** — `CircadianAlgorithm` interface defines `id`, `name`, `description`, `analyze()`; algorithms register via `registerAlgorithm()` at module load; `CircadianAnalysis` is the base result type, `RegressionAnalysis` extends it with algorithm-specific fields (`anchors`, `anchorTierCounts`, etc.)
 - **Tailwind CSS v4** — no config file, imported via `@import "tailwindcss"` in `index.css`, processed by `@tailwindcss/vite`
 - **No v1 API support** — only v1.2 format records are accepted; legacy v1 throws on import
 - **IndexedDB caching** — raw API records cached per-user; incremental fetch only retrieves newer records
@@ -74,7 +80,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Renderer draw order** — circadian overlay → schedule overlay → sleep blocks → date labels → editor overlay; later layers paint over earlier ones
 - **Overlay editor** — distinct edit mode (calendar mode only, disabled in tau mode); control points persist via `usePersistedState`; manual overlay renders in cyan, algorithm overlay dimmed as reference; "Export with overlay" produces ground-truth JSON with both `sleep` and `overlay` arrays
 - **Ground-truth test data** — `test-data/` is a gitignored independent git repo; each subdirectory contains `sleep.json` + `overlay.json` pairs; `circadian.groundtruth.test.ts` iterates all pairs and scores algorithm output against manual overlays (skips gracefully if directory missing)
-- **Tests** — Vitest, co-located in `__tests__/` dirs next to source; test files excluded from `tsc -b` build via `tsconfig.json` exclude; `_internals` barrel export on `circadian/index.ts` exposes private helpers for unit testing (tree-shaken from production); real data tests use `loadRealData(fileName)` from `fixtures/loadRealData.ts` which loads from `test-data/` by filename (skip gracefully if missing)
+- **Tests** — Vitest, co-located in `__tests__/` dirs next to source; test files excluded from `tsc -b` build via `tsconfig.json` exclude; `_internals` barrel export on `circadian/regression/index.ts` exposes private helpers for unit testing (tree-shaken from production); real data tests use `loadRealData(fileName)` from `fixtures/loadRealData.ts` which loads from `test-data/` by filename (skip gracefully if missing)
 - **Test categories** — `correctness:` tests hard-fail on violations (overlay smoothness, drift limits, confidence calibration); `benchmark:` tests log `BENCHMARK` lines with soft targets but only hard-fail on catastrophic guards (very wide bounds), enabling algorithm optimization without false rejections
 - **Ground truth output** — compact `GTRESULT` one-liner per dataset by default (machine-parseable for automated optimization); set `VERBOSE=1` env var for full diagnostic ASCII boxes with rolling windows and divergence streaks
 - **Hard drift limits** — `localDrift` must be in [-1.5, +3.0] h/day (i.e. `localTau` in [22.5, 27.0]); enforced by `assertHardDriftLimits()` across all tests; `computeDriftPenalty()` scores prolonged periods near limits with superlinear consecutive-day penalty

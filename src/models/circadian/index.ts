@@ -1,89 +1,45 @@
-// Circadian period estimation — orchestrator and public API
+// Circadian analysis — public API and algorithm registry
 import type { SleepRecord } from "../../api/types";
 import type { CircadianAnalysis } from "./types";
-import { splitIntoSegments } from "./anchors";
-import { analyzeSegment } from "./analyzeSegment";
-import { mergeSegmentResults } from "./mergeSegments";
+import type { RegressionAnalysis } from "./regression/types";
+import { registerAlgorithm, getAlgorithm, listAlgorithms } from "./registry";
+import type { CircadianAlgorithm } from "./registry";
+import { analyzeCircadian as analyzeRegression, ALGORITHM_ID, _internals } from "./regression";
 
-// ─── Public type re-exports ────────────────────────────────────────
+export type { CircadianDay, CircadianAnalysis } from "./types";
+export type { RegressionAnalysis, AnchorPoint } from "./regression/types";
+export type { CircadianAlgorithm } from "./registry";
+export { registerAlgorithm, getAlgorithm, listAlgorithms } from "./registry";
+export { splitIntoSegments } from "./segments";
+export { GAP_THRESHOLD_DAYS } from "./types";
 
-export type { CircadianDay, AnchorPoint, CircadianAnalysis } from "./types";
+const regressionAlgorithm: CircadianAlgorithm = {
+    id: ALGORITHM_ID,
+    name: "Weighted Regression",
+    description: "Anchor-based weighted regression with sliding window evaluation and robust outlier handling",
+    analyze: analyzeRegression,
+};
 
-// ─── Main analysis function ────────────────────────────────────────
+registerAlgorithm(regressionAlgorithm);
 
-/**
- * Orchestrator: splits records into independent segments at data gaps,
- * analyzes each segment with the full pipeline, and merges results.
- * @param extraDays - Number of days to forecast beyond the data range
- */
-export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0): CircadianAnalysis {
-    const empty: CircadianAnalysis = {
-        globalTau: 24,
-        globalDailyDrift: 0,
-        days: [],
-        anchors: [],
-        medianResidualHours: 0,
-        anchorCount: 0,
-        anchorTierCounts: { A: 0, B: 0, C: 0 },
-        tau: 24,
-        dailyDrift: 0,
-        rSquared: 0,
-    };
+export const DEFAULT_ALGORITHM_ID = ALGORITHM_ID;
 
-    if (records.length === 0) return empty;
-
-    // Sort all records and compute global epoch
-    const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-    const globalFirstDateMs = new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime();
-
-    // Split into independent segments at data gaps > GAP_THRESHOLD_DAYS
-    const recordSegments = splitIntoSegments(sorted);
-
-    // Analyze each segment independently
-    const segmentResults: (ReturnType<typeof analyzeSegment> & {})[] = [];
-    for (let i = 0; i < recordSegments.length; i++) {
-        const isLast = i === recordSegments.length - 1;
-        const result = analyzeSegment(recordSegments[i]!, isLast ? extraDays : 0, globalFirstDateMs);
-        if (result) segmentResults.push(result);
-    }
-
-    if (segmentResults.length === 0) return empty;
-
-    return mergeSegmentResults(segmentResults, globalFirstDateMs);
+export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0): RegressionAnalysis {
+    return analyzeRegression(records, extraDays);
 }
 
-// ─── Test internals barrel ─────────────────────────────────────────
+export function analyzeWithAlgorithm(
+    algorithmId: string,
+    records: SleepRecord[],
+    extraDays: number = 0
+): CircadianAnalysis {
+    const algorithm = getAlgorithm(algorithmId);
+    if (!algorithm) {
+        throw new Error(
+            `Unknown algorithm: ${algorithmId}. Available: ${Object.keys(listAlgorithms().map((a) => a.id)).join(", ")}`
+        );
+    }
+    return algorithm.analyze(records, extraDays);
+}
 
-import {
-    classifyAnchor,
-    sleepMidpointHour,
-    computeMedianSpacing,
-    splitIntoSegments as _splitIntoSegments,
-} from "./anchors";
-import {
-    localPairwiseUnwrap,
-    findSeedRegion,
-    expandFromRegion,
-    snapToNeighbors,
-    unwrapAnchorsFromSeed,
-} from "./unwrap";
-import { weightedLinearRegression, robustWeightedRegression, gaussian, evaluateWindow } from "./regression";
-import { GAP_THRESHOLD_DAYS } from "./types";
-
-/** @internal Exported for testing only. */
-export const _internals = {
-    classifyAnchor,
-    sleepMidpointHour,
-    localPairwiseUnwrap,
-    findSeedRegion,
-    weightedLinearRegression,
-    robustWeightedRegression,
-    gaussian,
-    evaluateWindow,
-    computeMedianSpacing,
-    expandFromRegion,
-    snapToNeighbors,
-    unwrapAnchorsFromSeed,
-    GAP_THRESHOLD_DAYS,
-    splitIntoSegments: _splitIntoSegments,
-};
+export { _internals };

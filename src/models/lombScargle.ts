@@ -1,6 +1,10 @@
-import type { AnchorPoint } from "./circadian";
+import type { SleepRecord } from "../api/types";
 
-// ─── Public interfaces ─────────────────────────────────────────────
+export interface PeriodogramAnchor {
+    dayNumber: number;
+    midpointHour: number;
+    weight: number;
+}
 
 export interface PeriodogramPoint {
     period: number; // trial period in hours
@@ -8,12 +12,31 @@ export interface PeriodogramPoint {
 }
 
 export interface PeriodogramResult {
-    points: PeriodogramPoint[]; // full computed range
-    trimmedPoints: PeriodogramPoint[]; // auto-trimmed to region of interest for display
+    points: PeriodogramPoint[];
+    trimmedPoints: PeriodogramPoint[];
     peakPeriod: number;
     peakPower: number;
-    significanceThreshold: number; // Rayleigh test, p < 0.01
+    significanceThreshold: number;
     power24h: number;
+}
+
+export function buildPeriodogramAnchors(records: SleepRecord[]): PeriodogramAnchor[] {
+    if (records.length === 0) return [];
+
+    const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const firstDateMs = new Date(sorted[0]!.dateOfSleep + "T00:00:00").getTime();
+
+    return sorted
+        .filter((r) => r.isMainSleep && r.durationHours >= 4)
+        .map((r) => {
+            const dayNumber = Math.round((new Date(r.dateOfSleep + "T00:00:00").getTime() - firstDateMs) / 86_400_000);
+            const midpointMs = (r.startTime.getTime() + r.endTime.getTime()) / 2;
+            const midnightMs = new Date(r.dateOfSleep + "T00:00:00").getTime();
+            const midpointHour = (midpointMs - midnightMs) / 3_600_000;
+            const weight = r.sleepScore * Math.min(1, r.durationHours / 7);
+
+            return { dayNumber, midpointHour, weight };
+        });
 }
 
 // ─── Gaussian smoothing ────────────────────────────────────────────
@@ -67,7 +90,7 @@ function gaussianSmooth(values: number[], sigma: number): number[] {
  *            Refinetti (2016) "Circadian Physiology"
  */
 export function computeLombScargle(
-    anchors: AnchorPoint[],
+    anchors: PeriodogramAnchor[],
     options: {
         minPeriod?: number;
         maxPeriod?: number;

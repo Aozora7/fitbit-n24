@@ -2,8 +2,6 @@
 import type { Anchor } from "./types";
 import { WINDOW_HALF, MAX_WINDOW_HALF, MIN_ANCHORS_PER_WINDOW, GAUSSIAN_SIGMA } from "./types";
 
-// ─── Weighted linear regression ────────────────────────────────────
-
 export function weightedLinearRegression(points: { x: number; y: number; w: number }[]): {
     slope: number;
     intercept: number;
@@ -33,8 +31,6 @@ export function weightedLinearRegression(points: { x: number; y: number; w: numb
     };
 }
 
-// ─── Robust regression (IRLS with Tukey bisquare) ─────────────────
-
 export function robustWeightedRegression(
     points: { x: number; y: number; w: number }[],
     maxIter = 5,
@@ -44,20 +40,16 @@ export function robustWeightedRegression(
         return { slope: 0, intercept: points.length > 0 ? points[0]!.y : 0 };
     }
 
-    // Initial fit using standard WLS
     let { slope, intercept } = weightedLinearRegression(points);
 
     for (let iter = 0; iter < maxIter; iter++) {
-        // Compute residuals
         const residuals = points.map((p) => p.y - (slope * p.x + intercept));
 
-        // MAD (median absolute deviation) of residuals
         const absRes = residuals.map((r) => Math.abs(r));
         absRes.sort((a, b) => a - b);
         const mad = absRes[Math.floor(absRes.length / 2)]! || 1;
-        const scale = Math.max(mad / 0.6745, 0.5); // 0.5h minimum scale
+        const scale = Math.max(mad / 0.6745, 0.5);
 
-        // Tukey bisquare reweighting
         const reweighted = points.map((p, i) => {
             const u = residuals[i]! / (tuningConstant * scale);
             const bisquareW = Math.abs(u) <= 1 ? (1 - u * u) ** 2 : 0;
@@ -77,13 +69,9 @@ export function robustWeightedRegression(
     return { slope, intercept };
 }
 
-// ─── Gaussian kernel ───────────────────────────────────────────────
-
 export function gaussian(distance: number, sigma: number): number {
     return Math.exp(-0.5 * (distance / sigma) ** 2);
 }
-
-// ─── Sliding window evaluation ─────────────────────────────────────
 
 export interface WindowResult {
     slope: number;
@@ -125,7 +113,6 @@ export function evaluateWindow(
         }
     }
 
-    // Compute weighted mean x (centroid) for regularized extrapolation
     let wxSum = 0,
         wSumX = 0;
     for (const p of points) {
@@ -148,7 +135,6 @@ export function evaluateWindow(
 
     const { slope, intercept } = robustWeightedRegression(points);
 
-    // Compute residual MAD
     const residuals = points.map((p) => Math.abs(p.y - (slope * p.x + intercept)));
     residuals.sort((a, b) => a - b);
     const residualMAD = residuals[Math.floor(residuals.length / 2)]!;
@@ -164,7 +150,6 @@ export function evaluateWindow(
     };
 }
 
-/** Evaluate window with progressive expansion if too few anchors */
 export function evaluateWindowExpanding(anchors: Anchor[], centerDay: number): WindowResult {
     let result = evaluateWindow(anchors, centerDay, WINDOW_HALF);
     if (result.pointsUsed < MIN_ANCHORS_PER_WINDOW) {

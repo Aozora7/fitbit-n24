@@ -1,19 +1,23 @@
-// Merge independently-analyzed segments into a single CircadianAnalysis result
-import type { CircadianAnalysis, CircadianDay, AnchorPoint, SegmentResult } from "./types";
+// Merge independently-analyzed segments into a single RegressionAnalysis result
+import type { CircadianDay } from "../types";
+import type { RegressionAnalysis, AnchorPoint, SegmentResult } from "./types";
 import { weightedLinearRegression } from "./regression";
 
-export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs: number): CircadianAnalysis {
-    const empty: CircadianAnalysis = {
+export const ALGORITHM_ID = "regression-v1";
+
+export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs: number): RegressionAnalysis {
+    const empty: RegressionAnalysis = {
         globalTau: 24,
         globalDailyDrift: 0,
         days: [],
+        algorithmId: ALGORITHM_ID,
+        tau: 24,
+        dailyDrift: 0,
+        rSquared: 0,
         anchors: [],
         medianResidualHours: 0,
         anchorCount: 0,
         anchorTierCounts: { A: 0, B: 0, C: 0 },
-        tau: 24,
-        dailyDrift: 0,
-        rSquared: 0,
     };
 
     if (segments.length === 0) return empty;
@@ -31,7 +35,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
     for (let si = 0; si < segments.length; si++) {
         const seg = segments[si]!;
 
-        // Fill gap days before this segment (after previous segment)
         if (si > 0) {
             const prevEnd = segments[si - 1]!.segLastDay;
             for (let d = prevEnd + 1; d < seg.segFirstDay; d++) {
@@ -66,8 +69,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         anchorCount += seg.anchorCount;
     }
 
-    // Compute globalTau from overlay midpoints, unwrapping per-segment
-    // then bridging across gaps to maintain a continuous phase sequence.
     const overlayMids: { x: number; y: number; w: number }[] = [];
     let prevSegEndMid = -Infinity;
 
@@ -82,7 +83,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
                 while (mid - prevMid > 12) mid -= 24;
                 while (prevMid - mid > 12) mid += 24;
             } else if (prevSegEndMid > -Infinity) {
-                // Bridge between segments: snap to within 12h of previous segment's end
                 while (mid - prevSegEndMid > 12) mid -= 24;
                 while (prevSegEndMid - mid > 12) mid += 24;
             }
@@ -112,12 +112,13 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         globalTau,
         globalDailyDrift: globalDrift,
         days: allDays,
+        algorithmId: ALGORITHM_ID,
+        tau: globalTau,
+        dailyDrift: globalDrift,
+        rSquared: 1 - Math.min(1, medResidual / 3),
         anchors: allAnchors,
         medianResidualHours: medResidual,
         anchorCount,
         anchorTierCounts: tierCounts,
-        tau: globalTau,
-        dailyDrift: globalDrift,
-        rSquared: 1 - Math.min(1, medResidual / 3),
     };
 }

@@ -10,6 +10,7 @@
         "analyze": "tsx cli/analyze.ts",
         "analyze-period": "tsx cli/analyze_period.ts",
         "split-gaps": "tsx cli/split-gaps.ts",
+        "compare": "tsx cli/compare.ts",
         "test": "vitest run",
         "test:watch": "vitest"
     },
