@@ -58,6 +58,13 @@ src/
         observations.ts            Sleep record → per-day observation extraction with adaptive measurement noise
         analyzeSegment.ts          Per-segment pipeline: initialization, forward filter, RTS smoother, output
         mergeSegments.ts           Merge Kalman segments into single KalmanAnalysis result
+      csf/
+        index.ts                   CSF algorithm entry point + _internals barrel for testing
+        types.ts                   CSF-specific types: CSFAnalysis, CSFState, CSFConfig, algorithm constants
+        filter.ts                  Von Mises filter: predict(), update(), forwardPass(), rtsSmoother()
+        anchors.ts                 Anchor preparation (reuse regression tier classification)
+        analyzeSegment.ts          Per-segment pipeline: anchors, filter, smoother, output
+        mergeSegments.ts           Merge CSF segments into single CSFAnalysis result
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)
     lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test) + buildPeriodogramAnchors()
     __tests__/

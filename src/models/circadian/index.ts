@@ -10,10 +10,12 @@ import {
     _internals,
 } from "./regression";
 import { analyzeCircadian as analyzeKalman, ALGORITHM_ID as KALMAN_ALGORITHM_ID } from "./kalman";
+import { analyzeCircadian as analyzeCSF, ALGORITHM_ID as CSF_ALGORITHM_ID } from "./csf";
 
 export type { CircadianDay, CircadianAnalysis } from "./types";
 export type { RegressionAnalysis, AnchorPoint } from "./regression/types";
 export type { KalmanAnalysis } from "./kalman/types";
+export type { CSFAnalysis, CSFConfig } from "./csf/types";
 export type { CircadianAlgorithm } from "./registry";
 export { registerAlgorithm, getAlgorithm, listAlgorithms } from "./registry";
 export { splitIntoSegments } from "./segments";
@@ -36,6 +38,15 @@ const kalmanAlgorithm: CircadianAlgorithm = {
 };
 
 registerAlgorithm(kalmanAlgorithm);
+
+const csfAlgorithm: CircadianAlgorithm = {
+    id: CSF_ALGORITHM_ID,
+    name: "Circular State-Space Filter",
+    description: "Von Mises circular filter with RTS smoother - native circular phase handling without unwrapping",
+    analyze: analyzeCSF,
+};
+
+registerAlgorithm(csfAlgorithm);
 
 export const DEFAULT_ALGORITHM_ID = REGRESSION_ALGORITHM_ID;
 

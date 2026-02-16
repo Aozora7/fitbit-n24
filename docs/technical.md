@@ -426,6 +426,45 @@ After the forward Kalman pass, a Rauch-Tung-Striebel backward smoother runs a si
 
 Confidence is derived directly from the posterior phase covariance: `1 / (1 + sqrt(P_phase))`. This is inherently calibrated — uncertainty grows naturally during data gaps and shrinks with observations. Forecast confidence additionally decays with `exp(-0.1 × daysFromEdge)`.
 
+### Circular State-Space Filter Algorithm (`csf-v1`)
+
+The CSF algorithm uses a Von Mises circular distribution for native phase handling, eliminating the need for phase unwrapping. It combines the simplicity of the Kalman filter with mathematically correct circular probability.
+
+#### Circular state-space model
+
+The state is `[phase, tau]` where phase is the circadian phase (circular, ∈ [0, 24)) and tau is the circadian period. State evolution:
+
+```
+phase(t+1) = phase(t) + tau(t) - 24  (mod 24)
+tau(t+1) = tau(t) + noise
+```
+
+#### Von Mises measurement update
+
+Instead of linear phase unwrapping, the CSF uses the Von Mises distribution (circular analog of the normal distribution) for measurement updates:
+
+```
+C_post = kappa_prior * cos(phase_prior) + kappa_meas * cos(measurement)
+S_post = kappa_prior * sin(phase_prior) + kappa_meas * sin(measurement)
+phase_post = atan2(S_post, C_post)
+kappa_post = sqrt(C_post² + S_post²)
+```
+
+This handles 24-hour wraparound naturally without branch selection logic.
+
+#### Pipeline
+
+1. **Anchor preparation**: Same tier classification as regression algorithm (A/B/C)
+2. **Forward filter + RTS smoother**: Initialize from first anchor, predict/update forward, then RTS backward pass
+3. **Output generation**: Convert smoothed states to CircadianDay[]
+
+#### Key advantages
+
+- No phase unwrapping required (native circular distribution)
+- Unified confidence from posterior variance
+- Natural handling of gaps through filter prediction
+- 3 pipeline steps vs 7 for regression
+
 ## Circadian algorithm parameters
 
 All locations below are relative to `src/models/circadian/`.
@@ -466,20 +505,32 @@ All locations below are relative to `src/models/circadian/`.
 
 ### Kalman filter algorithm parameters
 
-| Constant                        | Value                                                                       | Location                     |
-| ------------------------------- | --------------------------------------------------------------------------- | ---------------------------- |
-| Phase process noise (Q_PHASE)   | 0.04 h² (true circadian phase jitter ~0.2h/day)                            | `kalman/types.ts`            |
-| Drift process noise (Q_DRIFT)   | 0.0001 h²/day² (drift changes ~0.01 h/day per day)                         | `kalman/types.ts`            |
-| Base measurement noise (R_BASE) | 4.0 h² (night-to-night sleep timing variability ~2h)                       | `kalman/types.ts`            |
-| Mahalanobis gate threshold      | 3.5 (~99.95% valid observations pass)                                       | `kalman/types.ts`            |
-| Initialization window           | 7 days (linear fit for initial state)                                       | `kalman/types.ts`            |
-| Default drift prior             | 0.7 h/day (used when ≤2 initial observations)                              | `kalman/types.ts`            |
-| Initial phase covariance        | 4.0 h² (2h uncertainty)                                                     | `kalman/types.ts`            |
-| Initial drift covariance        | 0.25 h²/day² (0.5 h/day uncertainty)                                       | `kalman/types.ts`            |
-| Minimum record duration         | 2h (records shorter than this are skipped)                                  | `kalman/observations.ts`     |
-| Minimum record quality          | 0.1 (records below this are skipped)                                        | `kalman/observations.ts`     |
-| Drift clamp range               | [-1.5, +3.0] h/day (same hard limits as regression)                        | `kalman/analyzeSegment.ts`   |
-| Forecast confidence decay       | exp(-0.1 × daysFromEdge) (same as regression)                              | `kalman/analyzeSegment.ts`   |
+| Constant                        | Value                                                | Location                   |
+| ------------------------------- | ---------------------------------------------------- | -------------------------- |
+| Phase process noise (Q_PHASE)   | 0.04 h² (true circadian phase jitter ~0.2h/day)      | `kalman/types.ts`          |
+| Drift process noise (Q_DRIFT)   | 0.0001 h²/day² (drift changes ~0.01 h/day per day)   | `kalman/types.ts`          |
+| Base measurement noise (R_BASE) | 4.0 h² (night-to-night sleep timing variability ~2h) | `kalman/types.ts`          |
+| Mahalanobis gate threshold      | 3.5 (~99.95% valid observations pass)                | `kalman/types.ts`          |
+| Initialization window           | 7 days (linear fit for initial state)                | `kalman/types.ts`          |
+| Default drift prior             | 0.7 h/day (used when ≤2 initial observations)        | `kalman/types.ts`          |
+| Initial phase covariance        | 4.0 h² (2h uncertainty)                              | `kalman/types.ts`          |
+| Initial drift covariance        | 0.25 h²/day² (0.5 h/day uncertainty)                 | `kalman/types.ts`          |
+| Minimum record duration         | 2h (records shorter than this are skipped)           | `kalman/observations.ts`   |
+| Minimum record quality          | 0.1 (records below this are skipped)                 | `kalman/observations.ts`   |
+| Drift clamp range               | [-1.5, +3.0] h/day (same hard limits as regression)  | `kalman/analyzeSegment.ts` |
+| Forecast confidence decay       | exp(-0.1 × daysFromEdge) (same as regression)        | `kalman/analyzeSegment.ts` |
+
+### CSF algorithm parameters
+
+| Constant               | Value                                           | Location         |
+| ---------------------- | ----------------------------------------------- | ---------------- |
+| Process noise phase    | 0.5 h² (phase uncertainty growth per day)       | `csf/types.ts`   |
+| Process noise tau      | 0.005 h²/day² (tau drift rate)                  | `csf/types.ts`   |
+| Measurement kappa base | 1.5 (base Von Mises concentration for weight=1) | `csf/types.ts`   |
+| Tau prior              | 24.5 h (expected tau for N24)                   | `csf/types.ts`   |
+| Tau prior variance     | 0.5 h² (initial tau uncertainty)                | `csf/types.ts`   |
+| Tau clamp range        | [22.0, 27.0] h (physiological bounds)           | `csf/types.ts`   |
+| Anchor tiers           | Same as regression (A/B/C classification)       | `csf/anchors.ts` |
 
 ## Sleep score regression weights
 

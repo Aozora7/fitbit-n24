@@ -56,9 +56,15 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/circadian/kalman/types.ts`              | Kalman-specific types: `KalmanAnalysis`, `State`, `Cov`, constants                            |
 | `src/models/circadian/kalman/filter.ts`             | Forward Kalman filter: predict, update, Mahalanobis gating, 24h ambiguity resolution          |
 | `src/models/circadian/kalman/smoother.ts`           | Rauch-Tung-Striebel backward smoother                                                         |
-| `src/models/circadian/kalman/observations.ts`       | Sleep record → per-day observation extraction with adaptive measurement noise                  |
+| `src/models/circadian/kalman/observations.ts`       | Sleep record → per-day observation extraction with adaptive measurement noise                 |
 | `src/models/circadian/kalman/analyzeSegment.ts`     | Per-segment Kalman pipeline: init → forward filter → RTS smoother → output                    |
 | `src/models/circadian/kalman/mergeSegments.ts`      | Merge Kalman segments into single result                                                      |
+| `src/models/circadian/csf/index.ts`                 | CSF algorithm entry point + `_internals` barrel for testing                                   |
+| `src/models/circadian/csf/types.ts`                 | CSF-specific types: `CSFAnalysis`, `CSFState`, `CSFConfig`, constants                         |
+| `src/models/circadian/csf/filter.ts`                | Von Mises filter: predict, update, forwardPass, rtsSmoother                                   |
+| `src/models/circadian/csf/anchors.ts`               | Anchor preparation (reuses regression tier classification)                                    |
+| `src/models/circadian/csf/analyzeSegment.ts`        | Per-segment CSF pipeline: anchors → filter → smoother → output                                |
+| `src/models/circadian/csf/mergeSegments.ts`         | Merge CSF segments into single result                                                         |
 | `src/models/calculateSleepScore.ts`                 | Sleep quality scoring (regression model)                                                      |
 | `src/models/lombScargle.ts`                         | Phase coherence periodogram (despite the filename, uses Rayleigh test, not Lomb-Scargle)      |
 | `src/models/actogramData.ts`                        | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)             |
