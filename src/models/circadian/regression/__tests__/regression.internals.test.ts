@@ -3,7 +3,7 @@ import { _internals } from "../index";
 import type { SleepRecord } from "../../../../api/types";
 
 const {
-    classifyAnchor,
+    computeAnchorWeight,
     sleepMidpointHour,
     localPairwiseUnwrap,
     weightedLinearRegression,
@@ -11,8 +11,6 @@ const {
     gaussian,
     computeMedianSpacing,
 } = _internals;
-
-// ── Helper: minimal SleepRecord for classifyAnchor ──────────────────
 
 function makeSleepRecord(overrides: Partial<SleepRecord> = {}): SleepRecord {
     const base = new Date("2024-03-15T23:00:00");
@@ -32,57 +30,48 @@ function makeSleepRecord(overrides: Partial<SleepRecord> = {}): SleepRecord {
     };
 }
 
-// ── classifyAnchor ──────────────────────────────────────────────────
-
-describe("classifyAnchor", () => {
-    it("classifies tier A (≥7h, ≥0.75 quality)", () => {
-        const result = classifyAnchor(makeSleepRecord({ durationHours: 7, sleepScore: 0.75 }));
-        expect(result).not.toBeNull();
-        expect(result!.tier).toBe("A");
-        expect(result!.weight).toBeGreaterThan(0);
+describe("computeAnchorWeight", () => {
+    it("returns higher weight for higher quality", () => {
+        const high = computeAnchorWeight(makeSleepRecord({ durationHours: 8, sleepScore: 0.9 }));
+        const low = computeAnchorWeight(makeSleepRecord({ durationHours: 8, sleepScore: 0.5 }));
+        expect(high).toBeGreaterThan(low!);
     });
 
-    it("classifies tier B (≥5h, ≥0.6 quality)", () => {
-        const result = classifyAnchor(makeSleepRecord({ durationHours: 5.5, sleepScore: 0.65 }));
-        expect(result).not.toBeNull();
-        expect(result!.tier).toBe("B");
+    it("returns higher weight for longer duration", () => {
+        const long = computeAnchorWeight(makeSleepRecord({ durationHours: 8, sleepScore: 0.8 }));
+        const short = computeAnchorWeight(makeSleepRecord({ durationHours: 5, sleepScore: 0.8 }));
+        expect(long).toBeGreaterThan(short!);
     });
 
-    it("classifies tier C (≥4h, ≥0.4 quality)", () => {
-        const result = classifyAnchor(makeSleepRecord({ durationHours: 4.5, sleepScore: 0.45 }));
-        expect(result).not.toBeNull();
-        expect(result!.tier).toBe("C");
-    });
-
-    it("returns null for low quality short sleep", () => {
-        const result = classifyAnchor(makeSleepRecord({ durationHours: 3, sleepScore: 0.3 }));
-        expect(result).toBeNull();
-    });
-
-    it("returns null for boundary miss (4h, 0.39 quality)", () => {
-        const result = classifyAnchor(makeSleepRecord({ durationHours: 4, sleepScore: 0.39 }));
-        expect(result).toBeNull();
+    it("caps duration factor at 1 for 7h+", () => {
+        const at7 = computeAnchorWeight(makeSleepRecord({ durationHours: 7, sleepScore: 0.85 }));
+        const at10 = computeAnchorWeight(makeSleepRecord({ durationHours: 10, sleepScore: 0.85 }));
+        expect(at7).toEqual(at10);
     });
 
     it("applies nap multiplier (0.15x)", () => {
-        const main = classifyAnchor(makeSleepRecord({ durationHours: 8, sleepScore: 0.85, isMainSleep: true }));
-        const nap = classifyAnchor(makeSleepRecord({ durationHours: 8, sleepScore: 0.85, isMainSleep: false }));
-        expect(main).not.toBeNull();
-        expect(nap).not.toBeNull();
-        expect(nap!.weight).toBeCloseTo(main!.weight * 0.15, 6);
+        const main = computeAnchorWeight(makeSleepRecord({ durationHours: 8, sleepScore: 0.85, isMainSleep: true }));
+        const nap = computeAnchorWeight(makeSleepRecord({ durationHours: 8, sleepScore: 0.85, isMainSleep: false }));
+        expect(nap).toBeCloseTo(main! * 0.15, 6);
     });
 
-    it("caps duration factor at 1 for 9h+", () => {
-        const at9 = classifyAnchor(makeSleepRecord({ durationHours: 9, sleepScore: 0.85 }));
-        const at12 = classifyAnchor(makeSleepRecord({ durationHours: 12, sleepScore: 0.85 }));
-        // durFactor = min(1, (dur-4)/5): at 9h → 1.0, at 12h → 1.0 (capped)
-        expect(at9!.weight).toEqual(at12!.weight);
+    it("returns null for low weight records", () => {
+        const result = computeAnchorWeight(makeSleepRecord({ durationHours: 4, sleepScore: 0.1 }));
+        expect(result).toBeNull();
     });
 
-    it("tier A weight is higher than tier B for same quality", () => {
-        const a = classifyAnchor(makeSleepRecord({ durationHours: 8, sleepScore: 0.8 }));
-        const b = classifyAnchor(makeSleepRecord({ durationHours: 5.5, sleepScore: 0.8 }));
-        expect(a!.weight).toBeGreaterThan(b!.weight);
+    it("returns null for short duration", () => {
+        const result = computeAnchorWeight(makeSleepRecord({ durationHours: 3, sleepScore: 0.85 }));
+        expect(result).toBeNull();
+    });
+
+    it("weight increases smoothly with duration above 4h", () => {
+        const w5 = computeAnchorWeight(makeSleepRecord({ durationHours: 5, sleepScore: 1.0 }));
+        const w6 = computeAnchorWeight(makeSleepRecord({ durationHours: 6, sleepScore: 1.0 }));
+        const w7 = computeAnchorWeight(makeSleepRecord({ durationHours: 7, sleepScore: 1.0 }));
+        expect(w5).toBeCloseTo(1 / 3, 6);
+        expect(w6).toBeCloseTo(2 / 3, 6);
+        expect(w7).toBeCloseTo(1.0, 6);
     });
 });
 

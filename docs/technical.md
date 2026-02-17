@@ -236,7 +236,7 @@ Algorithms implement the `CircadianAlgorithm` interface with `id`, `name`, `desc
 - `listAlgorithms()` — returns all registered algorithms
 - `DEFAULT_ALGORITHM_ID` — the default algorithm ID (`regression-v1`)
 
-The base `CircadianAnalysis` type contains only common fields (`globalTau`, `days`, etc.). Algorithm-specific data (e.g., `anchors`, `anchorTierCounts` for the regression algorithm) is in `RegressionAnalysis` which extends the base type.
+The base `CircadianAnalysis` type contains only common fields (`globalTau`, `days`, etc.). Algorithm-specific data (e.g., `anchors`, `anchorCount` for the regression algorithm) is in `RegressionAnalysis` which extends the base type.
 
 ### Module structure
 
@@ -250,7 +250,7 @@ src/models/circadian/
     types.ts         Regression-specific types: RegressionAnalysis, Anchor, AnchorPoint, constants
     regression.ts    Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window
     unwrap.ts        Seed-based phase unwrapping with regression/pairwise branch resolution
-    anchors.ts       Anchor classification, midpoint computation, segment splitting
+    anchors.ts       Anchor weight computation, midpoint computation
     smoothing.ts     3-pass post-hoc overlay smoothing + forecast re-anchoring
     analyzeSegment.ts Per-segment analysis pipeline
     mergeSegments.ts Merge independently-analyzed segments into single result
@@ -266,7 +266,7 @@ src/models/circadian/
     index.ts         Algorithm entry point: analyzeCircadian(), _internals barrel
     types.ts         CSF-specific types: CSFAnalysis, CSFState, CSFConfig, constants
     filter.ts        Von Mises filter: predict, update, forwardPass, rtsSmoother
-    anchors.ts       Anchor preparation (reuses regression tier classification)
+    anchors.ts       Anchor preparation with continuous weight
     analyzeSegment.ts Per-segment CSF pipeline: anchors → filter → smoother → output
     mergeSegments.ts Merge CSF segments into single result
 ```
@@ -287,19 +287,22 @@ Where:
 
 The raw score is clamped to 0-100, rounded, then divided by 100 to produce a 0-1 value stored as `sleepScore` on each `SleepRecord`.
 
-### Step 2: Tiered anchor classification
+### Step 2: Continuous anchor weight computation
 
-Records are classified into three tiers based on duration and quality score:
+Each sleep record receives a continuous weight based on duration and quality score:
 
-| Tier | Duration | Quality | Base Weight | Purpose                         |
-| ---- | -------- | ------- | ----------- | ------------------------------- |
-| A    | >= 7h    | >= 0.75 | 1.0         | High-confidence circadian sleep |
-| B    | >= 5h    | >= 0.60 | 0.4         | Moderate-confidence             |
-| C    | >= 4h    | >= 0.40 | 0.1         | Gap-fill only                   |
+```
+weight = quality * durFactor
+durFactor = min(1, max(0, (durationHours - 4) / 3))
+```
 
-The effective weight for each anchor is `baseWeight * quality * durFactor`, where `durFactor = min(1, (durationHours - 4) / 5)`. This means longer, higher-quality sleeps receive more influence in the regression. Naps (`isMainSleep = false`) receive an additional 0.15× weight multiplier — they still contribute data but cannot dominate regression or unwrapping. This prevents false phase jumps when a main sleep and a nap on the same day both qualify as anchors.
+Records with weight < 0.05 are excluded entirely (catches fragmented/low-quality sleep). The weight formula:
 
-Tier C anchors are only included when the maximum gap between consecutive A+B anchor dates exceeds 14 days, indicating sparse coverage that needs filling.
+- Increases linearly with quality (higher sleepScore → higher weight)
+- Increases linearly with duration from 4h to 7h (plateaus at 7h+)
+- Naps (`isMainSleep = false`) receive an additional 0.15× weight multiplier
+
+This replaces the previous 3-tier (A/B/C) classification system with a smooth function, eliminating discontinuities at tier boundaries while achieving similar behavior: high-quality 7h+ sleeps get weight near 1.0, moderate 5-6h sleeps get weight 0.2-0.7, and low-quality or short sleeps get very low weight or are excluded.
 
 When multiple qualifying records exist for the same `dateOfSleep`, only the one with the highest weight is kept.
 
@@ -383,8 +386,8 @@ When forecast days are requested, the regression from the last data day (the "ed
 `CircadianAnalysis` contains:
 
 - `globalTau` / `globalDailyDrift`: Derived from weighted linear regression on unwrapped overlay midpoints (matches the visible overlay drift rate)
-- `anchors[]`: Array of `AnchorPoint` with `dayNumber`, `midpointHour`, `weight`, `tier`, `date`
-- `anchorCount` / `anchorTierCounts`: How many anchors in each tier
+- `anchors[]`: Array of `AnchorPoint` with `dayNumber`, `midpointHour`, `weight`, `date`
+- `anchorCount`: Number of anchors used
 - `medianResidualHours`: Median absolute deviation of anchor residuals from the model
 - `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `localDrift`, `confidenceScore`, `confidence` (tier: "high"/"medium"/"low"), `anchorSleep?`, `isForecast`, `isGap`
 - Legacy compat fields: `tau`, `dailyDrift`, `rSquared`
@@ -461,7 +464,7 @@ This handles 24-hour wraparound naturally while maintaining unbounded phase for 
 
 #### Pipeline
 
-1. **Anchor preparation**: Same tier classification as regression algorithm (A/B/C)
+1. **Anchor preparation**: Continuous weight computation (same as regression algorithm)
 2. **Forward filter + RTS smoother**: Initialize from first anchor, predict/update forward, then RTS backward pass
 3. **Output smoothing**: Gaussian smoothing of phase and tau (σ=5 days, window=±8)
 4. **Edge correction + forecast re-anchoring**: Re-anchors last ~10 data-backed days using Gaussian-weighted local fit to nearby anchor clock hours (unwrapped clock-hour space, quadratic blend ramp). Forecast days are then linearly extrapolated from the corrected last data day using the anchor-based slope, replacing the forward-pass predictions.
@@ -481,11 +484,9 @@ All locations below are relative to `src/models/circadian/`.
 | Constant                        | Value                                                                                                                     | Location                       |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | Segment gap threshold           | >14 days between records triggers segment split                                                                           | `types.ts`                     |
-| Anchor tier A threshold         | ≥7h duration, ≥0.75 quality                                                                                               | `regression/anchors.ts`        |
-| Anchor tier B threshold         | ≥5h duration, ≥0.60 quality                                                                                               | `regression/anchors.ts`        |
-| Anchor tier C threshold         | ≥4h duration, ≥0.40 quality                                                                                               | `regression/anchors.ts`        |
+| Min anchor weight               | 0.05 (records below excluded)                                                                                             | `regression/anchors.ts`        |
+| Duration factor ramp            | 4h → 7h (linear, plateaus at 7h+)                                                                                         | `regression/anchors.ts`        |
 | Nap weight multiplier           | 0.15 (applied to `!isMainSleep`)                                                                                          | `regression/anchors.ts`        |
-| Tier C inclusion trigger        | Max A+B gap > 14 days                                                                                                     | `regression/analyzeSegment.ts` |
 | Sliding window half-width       | 21 days (42-day window)                                                                                                   | `regression/types.ts`          |
 | Max window half-width           | 60 days (120-day window)                                                                                                  | `regression/types.ts`          |
 | Min anchors per window          | 6                                                                                                                         | `regression/types.ts`          |
@@ -531,21 +532,21 @@ All locations below are relative to `src/models/circadian/`.
 
 ### CSF algorithm parameters
 
-| Constant               | Value                                                         | Location           |
-| ---------------------- | ------------------------------------------------------------- | ------------------ |
-| Process noise phase    | 0.08 h² (phase uncertainty growth per day)                    | `csf/types.ts`     |
-| Process noise tau      | 0.001 h²/day² (tau drift rate)                                | `csf/types.ts`     |
-| Measurement kappa base | 0.35 (base Von Mises concentration)                           | `csf/types.ts`     |
-| Tau prior              | 25.0 h (forward-biased for N24)                               | `csf/types.ts`     |
-| Tau prior variance     | 0.1 h² (initial tau uncertainty)                              | `csf/types.ts`     |
-| Tau clamp range        | [22.0, 27.0] h (physiological bounds)                         | `csf/types.ts`     |
-| Anchor tiers           | Same as regression (A/B/C classification)                     | `csf/anchors.ts`   |
-| Ambiguity resolution   | Snaps measurements to predicted phase's branch                | `csf/filter.ts`    |
-| Output smoothing       | Phase/tau: σ=5 days, window=±8; Duration: σ=3 days, window=±5 | `csf/smoothing.ts` |
+| Constant               | Value                                                                  | Location           |
+| ---------------------- | ---------------------------------------------------------------------- | ------------------ |
+| Process noise phase    | 0.08 h² (phase uncertainty growth per day)                             | `csf/types.ts`     |
+| Process noise tau      | 0.001 h²/day² (tau drift rate)                                         | `csf/types.ts`     |
+| Measurement kappa base | 0.35 (base Von Mises concentration)                                    | `csf/types.ts`     |
+| Tau prior              | 25.0 h (forward-biased for N24)                                        | `csf/types.ts`     |
+| Tau prior variance     | 0.1 h² (initial tau uncertainty)                                       | `csf/types.ts`     |
+| Tau clamp range        | [22.0, 27.0] h (physiological bounds)                                  | `csf/types.ts`     |
+| Anchor tiers           | Continuous weight (same as regression)                                 | `csf/anchors.ts`   |
+| Ambiguity resolution   | Snaps measurements to predicted phase's branch                         | `csf/filter.ts`    |
+| Output smoothing       | Phase/tau: σ=5 days, window=±8; Duration: σ=3 days, window=±5          | `csf/smoothing.ts` |
 | Edge correction        | Window=10 days, anchor σ=7 days, radius=±15 days, quadratic blend ramp | `csf/smoothing.ts` |
-| Weight scaling         | Linear (not squared) - reduces Tier A dominance               | `csf/filter.ts`    |
-| Tau regularization     | Asymmetric: 4x stronger pull toward forward drift             | `csf/filter.ts`    |
-| Max correction/step    | 4.0 h (clamps phase and tau innovation per update)            | `csf/types.ts`     |
+| Weight scaling         | Linear (not squared) - reduces Tier A dominance                        | `csf/filter.ts`    |
+| Tau regularization     | Asymmetric: 4x stronger pull toward forward drift                      | `csf/filter.ts`    |
+| Max correction/step    | 4.0 h (clamps phase and tau innovation per update)                     | `csf/types.ts`     |
 
 ### Phase consistency metric
 

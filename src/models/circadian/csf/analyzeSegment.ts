@@ -17,11 +17,6 @@ export function analyzeSegment(
     const anchors = prepareAnchors(records, globalFirstDateMs);
     if (anchors.length < 2) return null;
 
-    const tierCounts = { A: 0, B: 0, C: 0 };
-    for (const a of anchors) {
-        tierCounts[a.tier]++;
-    }
-
     const firstAnchor = anchors[0]!;
     const lastAnchor = anchors[anchors.length - 1]!;
     const segFirstDay = firstAnchor.dayNumber;
@@ -123,7 +118,6 @@ export function analyzeSegment(
         days,
         states: smoothedStates,
         anchors,
-        tierCounts,
         anchorCount: anchors.length,
         residuals,
         segFirstDay,

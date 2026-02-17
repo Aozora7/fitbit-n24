@@ -107,10 +107,8 @@ export function evaluateWindow(
         qualitySum += a.weight;
         qualityCount++;
 
-        if (a.tier === "A") {
-            durationSum += a.record.durationHours;
-            durationCount++;
-        }
+        durationSum += a.record.durationHours * a.weight;
+        durationCount += a.weight;
     }
 
     let wxSum = 0,

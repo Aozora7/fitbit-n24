@@ -22,7 +22,6 @@ export interface CSFAnchor {
     dayNumber: number;
     midpointHour: number;
     weight: number;
-    tier: "A" | "B" | "C";
     record: SleepRecord;
 }
 
@@ -30,7 +29,6 @@ export interface CSFAnalysis extends CircadianAnalysis {
     states: CSFState[];
     algorithmId: "csf-v1";
     anchorCount: number;
-    anchorTierCounts: { A: number; B: number; C: number };
 }
 
 export interface SmoothedState extends CSFState {
@@ -44,7 +42,6 @@ export interface SegmentResult {
     days: import("../types").CircadianDay[];
     states: SmoothedState[];
     anchors: CSFAnchor[];
-    tierCounts: { A: number; B: number; C: number };
     anchorCount: number;
     residuals: number[];
     segFirstDay: number;

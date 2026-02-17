@@ -1,35 +1,17 @@
-// Anchor classification, midpoint computation, and median spacing
+// Anchor weight computation, midpoint computation, and median spacing
 import type { SleepRecord } from "../../../api/types";
-import type { Anchor, AnchorCandidate, AnchorTier } from "./types";
+import type { Anchor } from "./types";
 
-export function classifyAnchor(record: SleepRecord): AnchorCandidate | null {
+export function computeAnchorWeight(record: SleepRecord): number | null {
     const quality = record.sleepScore;
     const dur = record.durationHours;
 
-    let tier: AnchorTier;
-    let baseWeight: number;
+    const durFactor = Math.min(1, Math.max(0, (dur - 4) / 3));
+    const weight = quality * durFactor;
 
-    if (dur >= 7 && quality >= 0.75) {
-        tier = "A";
-        baseWeight = 1.0;
-    } else if (dur >= 5 && quality >= 0.6) {
-        tier = "B";
-        baseWeight = 0.4;
-    } else if (dur >= 4 && quality >= 0.4) {
-        tier = "C";
-        baseWeight = 0.1;
-    } else {
-        return null;
-    }
+    if (weight < 0.05) return null;
 
-    const durFactor = Math.min(1, (dur - 4) / 5);
-    let weight = baseWeight * quality * durFactor;
-
-    if (!record.isMainSleep) {
-        weight *= 0.15;
-    }
-
-    return { record, quality, tier, weight };
+    return record.isMainSleep ? weight : weight * 0.15;
 }
 
 export function sleepMidpointHour(record: SleepRecord, firstDateMs: number): number {

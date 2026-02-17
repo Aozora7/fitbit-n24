@@ -14,7 +14,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         rSquared: 0,
         states: [],
         anchorCount: 0,
-        anchorTierCounts: { A: 0, B: 0, C: 0 },
     };
 
     if (segments.length === 0) return empty;
@@ -24,7 +23,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
     const allDays: CircadianDay[] = [];
     const allStates: SegmentResult["states"] = [];
     const allResiduals: number[] = [];
-    const tierCounts = { A: 0, B: 0, C: 0 };
     let anchorCount = 0;
 
     const firstDate = new Date(globalFirstDateMs);
@@ -60,9 +58,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         allDays.push(...seg.days);
         allStates.push(...seg.states);
         allResiduals.push(...seg.residuals);
-        tierCounts.A += seg.tierCounts.A;
-        tierCounts.B += seg.tierCounts.B;
-        tierCounts.C += seg.tierCounts.C;
         anchorCount += seg.anchorCount;
     }
 
@@ -123,6 +118,5 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         rSquared: 1 - Math.min(1, medResidual / 3),
         states: allStates,
         anchorCount,
-        anchorTierCounts: tierCounts,
     };
 }

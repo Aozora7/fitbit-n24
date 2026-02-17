@@ -17,7 +17,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         anchors: [],
         medianResidualHours: 0,
         anchorCount: 0,
-        anchorTierCounts: { A: 0, B: 0, C: 0 },
     };
 
     if (segments.length === 0) return empty;
@@ -27,7 +26,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
     const allDays: CircadianDay[] = [];
     const allAnchors: AnchorPoint[] = [];
     const allResiduals: number[] = [];
-    const tierCounts = { A: 0, B: 0, C: 0 };
     let anchorCount = 0;
 
     const firstDate = new Date(globalFirstDateMs);
@@ -63,9 +61,6 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         allDays.push(...seg.days);
         allAnchors.push(...seg.anchors);
         allResiduals.push(...seg.residuals);
-        tierCounts.A += seg.tierCounts.A;
-        tierCounts.B += seg.tierCounts.B;
-        tierCounts.C += seg.tierCounts.C;
         anchorCount += seg.anchorCount;
     }
 
@@ -119,6 +114,5 @@ export function mergeSegmentResults(segments: SegmentResult[], globalFirstDateMs
         anchors: allAnchors,
         medianResidualHours: medResidual,
         anchorCount,
-        anchorTierCounts: tierCounts,
     };
 }

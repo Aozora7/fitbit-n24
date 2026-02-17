@@ -50,7 +50,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/circadian/regression/types.ts`          | Regression-specific types: `RegressionAnalysis`, `Anchor`, `AnchorPoint`, constants           |
 | `src/models/circadian/regression/regression.ts`     | Weighted/robust regression, Gaussian kernel, sliding window evaluation                        |
 | `src/models/circadian/regression/unwrap.ts`         | Seed-based phase unwrapping with regression/pairwise branch resolution                        |
-| `src/models/circadian/regression/anchors.ts`        | Anchor classification, midpoint computation                                                   |
+| `src/models/circadian/regression/anchors.ts`        | Anchor weight computation, midpoint computation                                               |
 | `src/models/circadian/regression/smoothing.ts`      | 3-pass post-hoc overlay smoothing + forecast re-anchoring                                     |
 | `src/models/circadian/regression/analyzeSegment.ts` | Per-segment analysis pipeline (steps 1-6 + smoothing call)                                    |
 | `src/models/circadian/regression/mergeSegments.ts`  | Merge independently-analyzed segments into single result                                      |
@@ -64,7 +64,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/circadian/csf/index.ts`                 | CSF algorithm entry point + `_internals` barrel for testing                                   |
 | `src/models/circadian/csf/types.ts`                 | CSF-specific types: `CSFAnalysis`, `CSFState`, `CSFConfig`, constants                         |
 | `src/models/circadian/csf/filter.ts`                | Von Mises filter: predict, update, forwardPass, rtsSmoother                                   |
-| `src/models/circadian/csf/anchors.ts`               | Anchor preparation (reuses regression tier classification)                                    |
+| `src/models/circadian/csf/anchors.ts`               | Anchor preparation with continuous weight                                                     |
 | `src/models/circadian/csf/smoothing.ts`             | Output phase smoothing (`smoothOutputPhase`) + edge correction (`correctEdge`)                |
 | `src/models/circadian/csf/analyzeSegment.ts`        | Per-segment CSF pipeline: anchors → filter → smoother → edge correction → output              |
 | `src/models/circadian/csf/mergeSegments.ts`         | Merge CSF segments into single result                                                         |
@@ -74,7 +74,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/overlayPath.ts`                         | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`           |
 | `src/components/Actogram/useActogramRenderer.ts`    | Canvas rendering engine for the actogram                                                      |
 | `src/components/Actogram/useOverlayEditor.ts`       | Interactive overlay editor hook (click/drag/delete control points on canvas)                  |
-| `src/models/__tests__/fixtures/visualize.ts`        | Test visualization: `generateVizHtml()`, `maybeSaveViz()` — HTML actograms with VIZ=1        |
+| `src/models/__tests__/fixtures/visualize.ts`        | Test visualization: `generateVizHtml()`, `maybeSaveViz()` — HTML actograms with VIZ=1         |
 | `cli/analyze.ts`                                    | CLI entry point for running analysis in Node.js (debugging harness)                           |
 
 ## Conventions
@@ -86,7 +86,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Sleep scores are 0-1**, not 0-100 (stored as `sleepScore` on `SleepRecord`)
 - **All timestamps use local time**, not UTC — day boundaries use `Date.setHours(0,0,0,0)` and manual `getFullYear()/getMonth()/getDate()` formatting
 - **Viz settings persist** via `usePersistedState` hook (localStorage keys prefixed `viz.`, including `viz.circadianModel`)
-- **Algorithm registry** — `CircadianAlgorithm` interface defines `id`, `name`, `description`, `analyze()`; algorithms register via `registerAlgorithm()` at module load; `CircadianAnalysis` is the base result type, `RegressionAnalysis` extends it with algorithm-specific fields (`anchors`, `anchorTierCounts`, etc.)
+- **Algorithm registry** — `CircadianAlgorithm` interface defines `id`, `name`, `description`, `analyze()`; algorithms register via `registerAlgorithm()` at module load; `CircadianAnalysis` is the base result type, `RegressionAnalysis` extends it with algorithm-specific fields (`anchors`, `anchorCount`, etc.)
 - **Tailwind CSS v4** — no config file, imported via `@import "tailwindcss"` in `index.css`, processed by `@tailwindcss/vite`
 - **No v1 API support** — only v1.2 format records are accepted; legacy v1 throws on import
 - **IndexedDB caching** — raw API records cached per-user; incremental fetch only retrieves newer records

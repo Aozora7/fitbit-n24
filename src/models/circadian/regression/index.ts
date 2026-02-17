@@ -19,7 +19,6 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
         anchors: [],
         medianResidualHours: 0,
         anchorCount: 0,
-        anchorTierCounts: { A: 0, B: 0, C: 0 },
     };
 
     if (records.length === 0) return empty;
@@ -41,7 +40,7 @@ export function analyzeCircadian(records: SleepRecord[], extraDays: number = 0):
     return mergeSegmentResults(segmentResults, globalFirstDateMs);
 }
 
-import { classifyAnchor, sleepMidpointHour, computeMedianSpacing } from "./anchors";
+import { computeAnchorWeight, sleepMidpointHour, computeMedianSpacing } from "./anchors";
 import {
     localPairwiseUnwrap,
     findSeedRegion,
@@ -52,7 +51,7 @@ import {
 import { weightedLinearRegression, robustWeightedRegression, gaussian, evaluateWindow } from "./regression";
 
 export const _internals = {
-    classifyAnchor,
+    computeAnchorWeight,
     sleepMidpointHour,
     localPairwiseUnwrap,
     findSeedRegion,

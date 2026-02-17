@@ -4,7 +4,7 @@ import type { CircadianDay } from "../types";
 import type { Anchor, SegmentResult } from "./types";
 import { WINDOW_HALF, MIN_ANCHORS_PER_WINDOW, OUTLIER_THRESHOLD_HOURS, REGULARIZATION_HALF } from "./types";
 import { evaluateWindow, evaluateWindowExpanding } from "./regression";
-import { classifyAnchor, sleepMidpointHour, computeMedianSpacing } from "./anchors";
+import { computeAnchorWeight, sleepMidpointHour, computeMedianSpacing } from "./anchors";
 import { unwrapAnchorsFromSeed } from "./unwrap";
 import { smoothOverlay } from "./smoothing";
 
@@ -15,41 +15,18 @@ export function analyzeSegment(
 ): SegmentResult | null {
     if (records.length === 0) return null;
 
-    const candidates = records.map((r) => classifyAnchor(r)).filter((c): c is NonNullable<typeof c> => c !== null);
-
-    if (candidates.length < 2) return null;
-
-    const tierCounts = { A: 0, B: 0, C: 0 };
-    for (const c of candidates) tierCounts[c.tier]++;
-
-    const abDates = [...new Set(candidates.filter((c) => c.tier !== "C").map((c) => c.record.dateOfSleep))].sort();
-
-    let maxGapAB = 0;
-    for (let i = 1; i < abDates.length; i++) {
-        const gap = Math.round(
-            (new Date(abDates[i]! + "T00:00:00").getTime() - new Date(abDates[i - 1]! + "T00:00:00").getTime()) /
-                86_400_000
-        );
-        maxGapAB = Math.max(maxGapAB, gap);
-    }
-
-    const activeCandidates = maxGapAB > 14 ? candidates : candidates.filter((c) => c.tier !== "C");
-
     const sorted = [...records].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-    const activeIds = new Set(activeCandidates.map((c) => c.record.logId));
-    const candMap = new Map(activeCandidates.map((c) => [c.record.logId, c]));
 
     let anchors: Anchor[] = [];
     for (const record of sorted) {
-        if (!activeIds.has(record.logId)) continue;
-        const c = candMap.get(record.logId)!;
+        const weight = computeAnchorWeight(record);
+        if (weight === null) continue;
         anchors.push({
             dayNumber: Math.round(
                 (new Date(record.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000
             ),
             midpointHour: sleepMidpointHour(record, globalFirstDateMs),
-            weight: c.weight,
-            tier: c.tier,
+            weight,
             record,
             date: record.dateOfSleep,
         });
@@ -237,10 +214,8 @@ export function analyzeSegment(
             dayNumber: a.dayNumber,
             midpointHour: a.midpointHour,
             weight: a.weight,
-            tier: a.tier,
             date: a.date,
         })),
-        tierCounts,
         anchorCount: anchors.length,
         residuals: allResiduals,
         segFirstDay,

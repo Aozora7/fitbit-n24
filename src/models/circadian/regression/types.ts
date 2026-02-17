@@ -6,7 +6,6 @@ export interface AnchorPoint {
     dayNumber: number;
     midpointHour: number;
     weight: number;
-    tier: "A" | "B" | "C";
     date: string;
 }
 
@@ -14,31 +13,19 @@ export interface RegressionAnalysis extends CircadianAnalysis {
     anchors: AnchorPoint[];
     medianResidualHours: number;
     anchorCount: number;
-    anchorTierCounts: { A: number; B: number; C: number };
 }
-
-export type AnchorTier = "A" | "B" | "C";
 
 export interface Anchor {
     dayNumber: number;
     midpointHour: number;
     weight: number;
-    tier: AnchorTier;
     record: SleepRecord;
     date: string;
-}
-
-export interface AnchorCandidate {
-    record: SleepRecord;
-    quality: number;
-    tier: AnchorTier;
-    weight: number;
 }
 
 export interface SegmentResult {
     days: CircadianDay[];
     anchors: AnchorPoint[];
-    tierCounts: { A: number; B: number; C: number };
     anchorCount: number;
     residuals: number[];
     segFirstDay: number;

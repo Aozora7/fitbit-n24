@@ -459,10 +459,9 @@ describe("regression-v1 specific", () => {
         expect(result.medianResidualHours).toBeLessThan(3);
     });
 
-    it("populates tier counts", () => {
+    it("populates anchor count", () => {
         const records = generateSyntheticRecords({ tau: 24.5, days: 90, quality: 0.85, seed: 9 });
         const result = analyze(records);
-        expect(result.anchorTierCounts.A).toBeGreaterThan(0);
         expect(result.anchorCount).toBeGreaterThan(0);
     });
 

@@ -45,10 +45,10 @@ src/
         index.ts                   Algorithm entry point: analyzeCircadian(), _internals barrel for testing
         types.ts                   Regression-specific types: RegressionAnalysis, Anchor, AnchorPoint, constants
         __tests__/
-          regression.internals.test.ts  Unit tests for regression internal helpers (classifyAnchor, regression, unwrapping)
+          regression.internals.test.ts  Unit tests for regression internal helpers (computeAnchorWeight, regression, unwrapping)
         regression.ts              Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window
         unwrap.ts                  Seed-based phase unwrapping with regression/pairwise branch resolution
-        anchors.ts                 Anchor classification, midpoint computation
+        anchors.ts                 Anchor weight computation, midpoint computation
         smoothing.ts               3-pass post-hoc overlay smoothing + forecast re-anchoring
         analyzeSegment.ts          Per-segment analysis pipeline
         mergeSegments.ts           Merge independently-analyzed segments into single result
@@ -64,7 +64,7 @@ src/
         index.ts                   CSF algorithm entry point + _internals barrel for testing
         types.ts                   CSF-specific types: CSFAnalysis, CSFState, CSFConfig, algorithm constants
         filter.ts                  Von Mises filter: predict(), update(), forwardPass(), rtsSmoother()
-        anchors.ts                 Anchor preparation (reuse regression tier classification)
+        anchors.ts                 Anchor preparation with continuous weight
         smoothing.ts               Output phase smoothing + edge correction (correctEdge, smoothOutputPhase)
         analyzeSegment.ts          Per-segment pipeline: anchors, filter, smoother, edge correction, output
         mergeSegments.ts           Merge CSF segments into single CSFAnalysis result
