@@ -69,7 +69,7 @@ src/
         analyzeSegment.ts          Per-segment pipeline: anchors, filter, smoother, edge correction, output
         mergeSegments.ts           Merge CSF segments into single CSFAnalysis result
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)
-    lombScargle.ts                  Phase coherence periodogram (windowed weighted Rayleigh test) + buildPeriodogramAnchors()
+    periodogram.ts                  Phase coherence periodogram (windowed weighted Rayleigh test) + buildPeriodogramAnchors()
     __tests__/
       fixtures/
         synthetic.ts                Seeded synthetic SleepRecord generator (configurable tau, noise, gaps)
@@ -83,7 +83,7 @@ src/
       circadian.groundtruth.test.ts Ground-truth overlay scoring on all algorithms (compact GTRESULT format by default, VERBOSE=1 for full diagnostics)
       overlayPath.test.ts           Overlay interpolation tests (linear interp, phase wrapping, extrapolation)
       calculateSleepScore.test.ts   Sleep score regression model tests
-      lombScargle.test.ts           Periodogram peak detection tests
+      periodogram.test.ts           Periodogram peak detection tests
       actogramData.test.ts          Row building, midnight crossings, tau-mode tests
 
   components/

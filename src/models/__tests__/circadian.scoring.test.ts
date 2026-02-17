@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { listAlgorithms, analyzeWithAlgorithm, type CircadianAnalysis } from "../circadian";
 import type { RegressionAnalysis } from "../circadian";
-import { computeLombScargle } from "../lombScargle";
+import { computePeriodogram } from "../periodogram";
 import { generateSyntheticRecords, computeTrueMidpoint, type SyntheticOptions } from "./fixtures/synthetic";
 import { hasRealData, loadRealData } from "./fixtures/loadRealData";
 import { maybeSaveViz } from "./fixtures/visualize";
@@ -122,8 +122,11 @@ for (const algo of algorithms) {
                 const records = generateSyntheticRecords(opts);
                 const analysis = analyze(records);
                 maybeSaveViz(`scoring_tau-${tau}_${algo.id}`, {
-                    title: `Tau sweep τ=${tau} — ${algo.name}`, records, analysis,
-                    algorithmId: algo.id, groundTruth: opts,
+                    title: `Tau sweep τ=${tau} — ${algo.name}`,
+                    records,
+                    analysis,
+                    algorithmId: algo.id,
+                    groundTruth: opts,
                 });
                 const score = scoreAnalysis(analysis, opts);
                 logScore(`tau=${tau}`, score);
@@ -144,8 +147,11 @@ for (const algo of algorithms) {
             const records = generateSyntheticRecords(opts);
             const analysis = analyze(records);
             maybeSaveViz(`scoring_phase-accuracy_${algo.id}`, {
-                title: `Phase accuracy — ${algo.name}`, records, analysis,
-                algorithmId: algo.id, groundTruth: opts,
+                title: `Phase accuracy — ${algo.name}`,
+                records,
+                analysis,
+                algorithmId: algo.id,
+                groundTruth: opts,
             });
             const score = scoreAnalysis(analysis, opts);
             logScore("phase-accuracy", score);
@@ -235,8 +241,11 @@ for (const algo of algorithms) {
             const records = generateSyntheticRecords(opts);
             const analysis = analyze(records);
             maybeSaveViz(`scoring_variable-tau_${algo.id}`, {
-                title: `Variable tau (step change) — ${algo.name}`, records, analysis,
-                algorithmId: algo.id, groundTruth: opts,
+                title: `Variable tau (step change) — ${algo.name}`,
+                records,
+                analysis,
+                algorithmId: algo.id,
+                groundTruth: opts,
             });
 
             const baseDate = new Date("2024-01-01T00:00:00");
@@ -245,9 +254,7 @@ for (const algo of algorithms) {
 
             for (const day of analysis.days) {
                 if (day.isForecast) continue;
-                const d = Math.round(
-                    (new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000
-                );
+                const d = Math.round((new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000);
                 if (d >= 15 && d < 75) firstHalfTaus.push(day.localTau);
                 else if (d >= 105 && d < 165) secondHalfTaus.push(day.localTau);
             }
@@ -315,8 +322,11 @@ for (const algo of algorithms) {
 
             const analysis = analyze(records);
             maybeSaveViz(`scoring_nap-contamination_${algo.id}`, {
-                title: `Nap contamination — ${algo.name}`, records, analysis,
-                algorithmId: algo.id, groundTruth: opts,
+                title: `Nap contamination — ${algo.name}`,
+                records,
+                analysis,
+                algorithmId: algo.id,
+                groundTruth: opts,
             });
             const score = scoreAnalysis(analysis, opts);
             logScore("nap-contamination", score);
@@ -345,8 +355,11 @@ for (const algo of algorithms) {
             const records = generateSyntheticRecords(opts);
             const analysis = analyze(records);
             maybeSaveViz(`scoring_outlier-contamination_${algo.id}`, {
-                title: `Outlier contamination 20% — ${algo.name}`, records, analysis,
-                algorithmId: algo.id, groundTruth: opts,
+                title: `Outlier contamination 20% — ${algo.name}`,
+                records,
+                analysis,
+                algorithmId: algo.id,
+                groundTruth: opts,
             });
             const score = scoreAnalysis(analysis, opts);
             logScore("outlier-contamination", score);
@@ -427,17 +440,14 @@ for (const algo of algorithms) {
 
             for (const day of analysis.days) {
                 if (day.isForecast) continue;
-                const d = Math.round(
-                    (new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000
-                );
+                const d = Math.round((new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000);
                 const predictedMid = (day.nightStartHour + day.nightEndHour) / 2;
                 const trueMid = computeTrueMidpoint(d, opts);
                 const error = circularDistance(predictedMid, trueMid);
                 bins[day.confidence].push(error);
             }
 
-            const mean = (arr: number[]) =>
-                arr.length > 0 ? arr.reduce((s, e) => s + e, 0) / arr.length : Infinity;
+            const mean = (arr: number[]) => (arr.length > 0 ? arr.reduce((s, e) => s + e, 0) / arr.length : Infinity);
 
             const highMean = mean(bins.high);
             const lowMean = mean(bins.low);
@@ -474,8 +484,11 @@ for (const algo of algorithms) {
             const records = generateSyntheticRecords(opts);
             const analysis = analyze(records);
             maybeSaveViz(`scoring_fragmentation_${algo.id}`, {
-                title: `Sleep fragmentation — ${algo.name}`, records, analysis,
-                algorithmId: algo.id, groundTruth: opts,
+                title: `Sleep fragmentation — ${algo.name}`,
+                records,
+                analysis,
+                algorithmId: algo.id,
+                groundTruth: opts,
             });
 
             assertHardDriftLimits(analysis.days);
@@ -486,9 +499,7 @@ for (const algo of algorithms) {
 
             for (const day of analysis.days) {
                 if (day.isForecast) continue;
-                const d = Math.round(
-                    (new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000
-                );
+                const d = Math.round((new Date(day.date + "T00:00:00").getTime() - baseDate.getTime()) / 86_400_000);
                 if (d >= 60 && d < 120) {
                     fragmentedTaus.push(day.localTau);
                 }
@@ -657,12 +668,7 @@ for (const algo of algorithms) {
                 logDriftPenalty(`cumshift/${tau}/${days}d`, analysis);
 
                 if (Math.abs(expectedShiftH) < 1) {
-                    benchmark(
-                        `cumshift/${tau}/${days}d`,
-                        "absShiftError",
-                        Math.abs(actualShiftH - expectedShiftH),
-                        5
-                    );
+                    benchmark(`cumshift/${tau}/${days}d`, "absShiftError", Math.abs(actualShiftH - expectedShiftH), 5);
                     expect(Math.abs(actualShiftH - expectedShiftH)).toBeLessThan(15);
                 } else {
                     const ratio = actualShiftH / expectedShiftH;
@@ -747,7 +753,7 @@ describe.skipIf(!hasRealData(AOZORA_FILE))(
         it("overlay implied tau vs periodogram peak", () => {
             const records = loadRealData(AOZORA_FILE);
             const analysis = analyzeWithAlgorithm("regression-v1", records) as RegressionAnalysis;
-            const periodogram = computeLombScargle(analysis.anchors);
+            const periodogram = computePeriodogram(analysis.anchors);
 
             const dataDays = analysis.days.filter((d) => !d.isForecast);
             const numDays = dataDays.length;

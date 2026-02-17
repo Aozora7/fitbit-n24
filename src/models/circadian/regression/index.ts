@@ -1,4 +1,17 @@
-// Weighted regression circadian period estimation algorithm
+/**
+ * Weighted Regression Circadian Period Estimation Algorithm (regression-v1)
+ *
+ * Module structure:
+ *   index.ts         - Algorithm entry point: analyzeCircadian(), _internals barrel
+ *   types.ts         - Types: RegressionAnalysis, Anchor, AnchorPoint, constants
+ *   anchors.ts       - Anchor weight computation, midpoint calculation
+ *   regression.ts    - Weighted/robust regression (IRLS+Tukey), Gaussian kernel
+ *   unwrap.ts        - Seed-based phase unwrapping with branch resolution
+ *   smoothing.ts     - 3-pass post-hoc overlay smoothing + forecast re-anchoring
+ *   analyzeSegment.ts - Per-segment analysis pipeline
+ *   mergeSegments.ts - Merge independently-analyzed segments
+ *   __tests__/       - Unit tests for internals
+ */
 import type { SleepRecord } from "../../../api/types";
 import type { RegressionAnalysis } from "./types";
 import { splitIntoSegments } from "../segments";

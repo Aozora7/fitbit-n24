@@ -31,7 +31,7 @@ Fitbit API (v1.2)                        Local JSON file
             |       -> CircadianAnalysis { days: CircadianDay[], globalTau, ... }
             |       -> useActogramRenderer() (purple/amber overlay band with variable alpha)
             |
-            +---> computeLombScargle()  (windowed phase coherence periodogram)
+            +---> computePeriodogram()  (windowed phase coherence periodogram)
                     -> PeriodogramResult { points, peakPeriod, significanceThreshold, ... }
                     -> Periodogram.tsx (Canvas chart)
 ```
@@ -237,39 +237,6 @@ Algorithms implement the `CircadianAlgorithm` interface with `id`, `name`, `desc
 - `DEFAULT_ALGORITHM_ID` — the default algorithm ID (`regression-v1`)
 
 The base `CircadianAnalysis` type contains only common fields (`globalTau`, `days`, etc.). Algorithm-specific data (e.g., `anchors`, `anchorCount` for the regression algorithm) is in `RegressionAnalysis` which extends the base type.
-
-### Module structure
-
-```
-src/models/circadian/
-  index.ts           Public API: analyzeWithAlgorithm(), type exports, algorithm registration
-  types.ts           Base types: CircadianAnalysis, CircadianDay
-  registry.ts        Algorithm registry: registerAlgorithm(), getAlgorithm(), listAlgorithms()
-  regression/
-    index.ts         Algorithm entry point: analyzeCircadian(), _internals barrel
-    types.ts         Regression-specific types: RegressionAnalysis, Anchor, AnchorPoint, constants
-    regression.ts    Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window
-    unwrap.ts        Seed-based phase unwrapping with regression/pairwise branch resolution
-    anchors.ts       Anchor weight computation, midpoint computation
-    smoothing.ts     3-pass post-hoc overlay smoothing + forecast re-anchoring
-    analyzeSegment.ts Per-segment analysis pipeline
-    mergeSegments.ts Merge independently-analyzed segments into single result
-  kalman/
-    index.ts         Algorithm entry point: analyzeCircadian(), _internals barrel
-    types.ts         Kalman-specific types: KalmanAnalysis, State, Cov, constants
-    filter.ts        Forward Kalman filter: predict, update, Mahalanobis gating, ambiguity resolution
-    smoother.ts      Rauch-Tung-Striebel backward smoother
-    observations.ts  Sleep record → per-day observation extraction with adaptive noise
-    analyzeSegment.ts Per-segment pipeline: init → forward → backward → output
-    mergeSegments.ts Merge Kalman segments into single result
-  csf/
-    index.ts         Algorithm entry point: analyzeCircadian(), _internals barrel
-    types.ts         CSF-specific types: CSFAnalysis, CSFState, CSFConfig, constants
-    filter.ts        Von Mises filter: predict, update, forwardPass, rtsSmoother
-    anchors.ts       Anchor preparation with continuous weight
-    analyzeSegment.ts Per-segment CSF pipeline: anchors → filter → smoother → output
-    mergeSegments.ts Merge CSF segments into single result
-```
 
 ### Weighted Regression Algorithm: Step 1: Quality scoring
 
@@ -588,7 +555,7 @@ The max window tau delta catches algorithms that systematically misestimate drif
 
 ## Phase coherence periodogram
 
-`computeLombScargle()` in `models/lombScargle.ts` computes a windowed phase coherence periodogram using the weighted Rayleigh test. Despite the filename (a historical artifact), this is not a Lomb-Scargle spectral method.
+`computePeriodogram()` in `models/periodogram.ts` computes a windowed phase coherence periodogram using the weighted Rayleigh test.
 
 For each trial period P (default 23–26h in 0.01h steps), anchor times are folded modulo P and mapped to angles on the unit circle. The squared mean resultant length R² measures phase concentration:
 

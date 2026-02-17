@@ -72,85 +72,44 @@ Double-plotting is standard practice in circadian research because it eliminates
 
 ## Estimating the circadian period
 
-### The problem
+### The challenge
 
-Given noisy sleep data with forced wake times, naps, and gaps, estimate the underlying circadian period (tau) and predict where the circadian night falls on any given day. The period is not constant — it varies with seasons, light exposure, medication, and other factors — so a single global estimate is insufficient.
+Given noisy sleep data with forced wake times, naps, and gaps, estimate the underlying circadian period (tau) and predict where the circadian night falls on any given day. The period is not constant — it varies with seasons, light exposure, medication, and other factors.
 
 ### Phase markers
 
 The sleep midpoint (halfway between sleep onset and wake time) is used as a proxy for the circadian phase. In chronobiology, more precise phase markers include core body temperature minimum (CBTmin) or dim light melatonin onset (DLMO), but these require laboratory measurement. The sleep midpoint is the best available marker from consumer wearable data.
 
-### Sleep quality as a filter
+### Sleep quality as a signal
 
-Not all sleep records are equally informative. When the Fitbit v1.2 API provides sleep stage data, the proportion of REM and deep sleep is the strongest signal for whether a sleep with a long duration was circadian-aligned. Fitbit's own sleep score available in the official app highly correlates with circadian-aligned sleep, however, Fitbit's sleep API does not provide it.
+Not all sleep records are equally informative about circadian phase. Sleep that aligns with the circadian night tends to have higher proportions of deep and REM sleep, longer duration, and fewer awakenings. Sleep forced at inappropriate circadian times shows more fragmentation and less restorative architecture.
 
-This app computes its own sleep quality score using a regression model with weights fitted to actual Fitbit data. The features are a piecewise duration score, deep + REM minutes, and wake percentage (wake minutes / time in bed). For classic records without stage data, deep + REM is estimated as 39% of minutes asleep.
+### Phase unwrapping
 
-### Tiered anchor selection
+Sleep midpoints require "unwrapping" to remove 24-hour wraparound ambiguity — an algorithm must decide whether a jump from hour 23 to hour 1 represents a 2-hour forward shift or a 22-hour backward shift. For N24, the forward shift is almost always correct, but noisy data can make this determination difficult.
 
-Records are classified into three tiers based on duration and quality:
+### Local vs. global estimation
 
-- **Tier A** : High-confidence anchors that almost certainly represent circadian sleep
-- **Tier B** : Moderate-confidence anchors
-- **Tier C** : Used only for gap-filling when the maximum gap between consecutive A+B anchor dates exceeds 14 days
+Rather than computing a single period for the entire dataset, local estimation tracks how tau changes over time. A sliding window approach captures gradual changes in the circadian period over months and years, allowing the predicted night band to curve rather than follow a straight diagonal.
 
-When multiple records exist for the same calendar day, only the highest-quality one is kept. Naps (`isMainSleep = false`) are downweighted by 0.15× to prevent them from dominating regression or phase unwrapping.
+### Limitations of wearable data
 
-### Outlier rejection
+**Midpoint as phase marker**: Using the midpoint assumes sleep is roughly symmetric around the circadian nadir. In practice, sleep onset and offset relate differently to the underlying circadian phase, and forced wake times can shift the midpoint away from the true circadian center.
 
-After initial anchor selection, a global linear regression is fit and records with residuals exceeding 8 hours are removed. This catches forced-schedule sleeps that passed the duration and quality thresholds but have midpoints far from the true circadian phase.
+**No direct phase measurement**: Wearables measure behavior (sleep/wake) not physiology. True circadian phase requires laboratory markers that aren't available from consumer devices.
 
-### Seed-based phase unwrapping
+## Phase coherence periodogram
 
-Sleep midpoints require "unwrapping" to remove 24-hour wraparound ambiguity — the algorithm must decide whether a jump from hour 23 to hour 1 represents a 2-hour forward shift or a 22-hour backward shift. The naive approach of sequential pairwise unwrapping from the first anchor is fragile: if early data contains noisy patterns (scattered naps, polyphasic sleep, manual logs), the algorithm misinterprets noise as 24h wraps, producing a cascading error that corrupts the entire trajectory.
+A weighted Rayleigh phase coherence periodogram provides frequency-domain validation of time-domain tau estimates. For each trial period P, sleep midpoint times are folded modulo P and mapped to angles on the unit circle. The mean resultant length R measures how concentrated the folded phases are — R ≈ 1 means all midpoints align at one phase (strong periodicity), R ≈ 0 means uniform spread (no periodicity).
 
-The seed-based approach solves this by first scanning the timeline with a sliding window to find the most internally consistent region — scored on residual spread, anchor density, weight, and slope plausibility. This "seed" region is unwrapped safely via pairwise comparison, then the algorithm expands outward (forward and backward) from the seed. Each new anchor is snapped to within 12 hours of a prediction derived from already-unwrapped neighbors, weighted by Gaussian distance decay. This means noisy early data is constrained by a clean interior region rather than contaminating everything downstream.
+This approach is standard in chronobiology for phase marker data. Unlike spectral methods (Lomb-Scargle, FFT) which require an oscillating signal, the Rayleigh test works directly on event timing data.
 
-### Sliding-window weighted regression
+The periodogram reveals:
 
-Rather than fitting a single line to the entire dataset (which assumes constant tau), the app uses a 42-day Gaussian-weighted sliding window (±21 days, expandable to ±60 days if data is sparse) stepped daily:
-
-1. For each calendar day, collect all anchors within the window
-2. Weight each anchor by a Gaussian (sigma = 14 days) multiplied by its tier weight
-3. Fit robust weighted regression (IRLS with Tukey bisquare M-estimation): midpoint = slope \* dayIndex + intercept
-4. Local tau = 24 + slope
-
-This produces a per-day tau estimate that captures gradual changes in the circadian period over months and years. The circadian overlay follows these local estimates, so the predicted night band curves rather than being a straight diagonal. The robust regression automatically downweights outliers that survived the initial rejection step.
-
-A composite confidence score for each day combines anchor density (40%), mean anchor quality (30%), and residual spread (30%). The circadian overlay uses this to modulate opacity — regions with dense, high-quality data are drawn more prominently.
-
-### Current limitations
-
-**Midpoint as phase marker**: Using the midpoint of the sleep record assumes sleep is roughly symmetric around the circadian nadir. In practice, sleep onset and offset relate differently to the underlying circadian phase, and forced wake times can shift the midpoint away from the true circadian center.
-
-**Variable night duration**: The circadian overlay uses the average sleep duration of high-confidence (A-tier) anchors in the local window to size the night band, falling back to 8 hours when no A-tier anchors are available. This is still an approximation — actual circadian night duration is not directly measurable from wearable data.
-
-**No change-point detection**: The sliding window captures gradual tau changes but cannot detect sudden phase shifts from jet lag, medication changes, or entrainment episodes. These appear as brief anomalies in the overlay rather than clean transitions.
-
-### Phase coherence periodogram
-
-A weighted Rayleigh phase coherence periodogram provides frequency-domain validation of the regression-based tau estimate. For each trial period P (default 23–26 hours in 0.01h steps), anchor times are folded modulo P and mapped to angles on the unit circle. The mean resultant length R measures how concentrated the folded phases are — R ≈ 1 means all anchors align at one phase (strong periodicity), R ≈ 0 means uniform spread (no periodicity).
-
-This approach is standard in chronobiology for phase marker data (sleep midpoints, activity onsets). Unlike spectral methods (Lomb-Scargle, FFT) which require an oscillating signal, the Rayleigh test works directly on event timing data without requiring evenly sampled activity counts.
-
-The periodogram reveals information the actogram and regression cannot show directly:
-- **Dominant period confirmation**: A sharp peak validates the regression-based tau
+- **Dominant period confirmation**: A sharp peak near the estimated tau validates the time-domain estimate
 - **Partial entrainment**: Power at exactly 24h indicates periods of locking to the solar day
-- **Secondary periodicities**: Peaks at other periods (e.g. weekly forcing from work schedules)
-- **Signal quality**: Peak height relative to the significance threshold (p<0.01) quantifies how clean the free-running rhythm is
+- **Secondary periodicities**: Peaks at other periods (e.g., weekly forcing from work schedules)
 - **Period stability**: Narrow peak = stable tau, broad peak = variable period
-
-The implementation uses the weighted Rayleigh test (Batschelet, 1981), with anchor weights incorporated into the circular mean computation. The significance threshold uses the Rayleigh distribution: R_crit = √(−ln(p) / N_eff) where N_eff is the effective sample size for weighted data.
-
-### Approaches not yet implemented
-
-**Chi-squared periodogram**: The Sokolove-Bushell chi-squared periodogram is an alternative frequency-domain method from chronobiology that bins phases and computes a chi-squared statistic. Similar in spirit to the Rayleigh test but requires choosing a bin count.
-
-**Lomb-Scargle periodogram**: A spectral method designed for unevenly sampled oscillating signals. Better suited for continuous data (activity counts, temperature) than for phase markers. Could be applied to a binary sleep/wake time series constructed from the raw records.
-
-**Change-point detection**: Statistical methods to identify moments where the underlying period shifts. Could be combined with the sliding-window approach to detect and label entrainment episodes.
-
-**Bayesian estimation**: Model the circadian phase as a latent variable with a prior on tau and uncertainty on each observation. This naturally handles missing data and variable confidence.
 
 ## Counting full revolutions
 
@@ -194,4 +153,4 @@ When the circadian night falls during waking hours (the "bad" part of the cycle)
 - Sack RL, et al. "Circadian rhythm sleep disorders" (2007) - Clinical review covering N24 diagnosis and treatment
 - Uchiyama M, Lockley SW. "Non-24-hour sleep-wake rhythm disorder in sighted and blind patients" (2015) - Comprehensive review of N24
 - Refinetti R. "Circadian Physiology" (3rd ed.) - Textbook covering actogram methodology and period analysis
-- Sokolove PG, Bushell WN. "The chi square periodogram: its utility for analysis of circadian rhythms" (1978) - Original chi-squared periodogram method
+- Batschelet E. "Circular Statistics in Biology" (1981) - Mathematical foundation for the Rayleigh test and circular data analysis

@@ -1,4 +1,15 @@
-// Kalman filter circadian analysis — public API and algorithm registration
+/**
+ * Kalman Filter Circadian Analysis Algorithm (kalman-v1)
+ *
+ * Module structure:
+ *   index.ts         - Algorithm entry point: analyzeCircadian(), _internals barrel
+ *   types.ts         - Types: KalmanAnalysis, State, Cov, constants
+ *   filter.ts        - Forward Kalman: predict(), update(), Mahalanobis gating
+ *   smoother.ts      - Rauch-Tung-Striebel backward smoother
+ *   observations.ts  - Sleep record → observation extraction with adaptive noise
+ *   analyzeSegment.ts - Per-segment pipeline: init → filter → smoother → output
+ *   mergeSegments.ts - Merge Kalman segments into single result
+ */
 import type { SleepRecord } from "../../../api/types";
 import type { KalmanAnalysis } from "./types";
 import { splitIntoSegments } from "../segments";

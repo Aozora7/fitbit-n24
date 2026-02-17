@@ -89,7 +89,7 @@ function gaussianSmooth(values: number[], sigma: number): number[] {
  * Reference: Batschelet (1981) "Circular Statistics in Biology"
  *            Refinetti (2016) "Circadian Physiology"
  */
-export function computeLombScargle(
+export function computePeriodogram(
     anchors: PeriodogramAnchor[],
     options: {
         minPeriod?: number;

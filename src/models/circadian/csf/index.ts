@@ -1,3 +1,15 @@
+/**
+ * Circular State-Space Filter Algorithm (csf-v1)
+ *
+ * Module structure:
+ *   index.ts         - Algorithm entry point: analyzeCircadian(), _internals barrel
+ *   types.ts         - Types: CSFAnalysis, CSFState, CSFConfig, constants
+ *   filter.ts        - Von Mises filter: predict(), update(), forwardPass(), rtsSmoother()
+ *   anchors.ts       - Anchor preparation with continuous weight
+ *   smoothing.ts     - Output phase smoothing, edge correction
+ *   analyzeSegment.ts - Per-segment pipeline: anchors → filter → smoother → output
+ *   mergeSegments.ts - Merge CSF segments into single result
+ */
 import type { SleepRecord } from "../../../api/types";
 import type { CSFAnalysis, CSFConfig } from "./types";
 import { DEFAULT_CONFIG } from "./types";

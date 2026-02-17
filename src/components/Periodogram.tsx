@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { scaleLinear } from "d3-scale";
 import { useAppContext } from "../useAppContext";
-import { computeLombScargle, buildPeriodogramAnchors, type PeriodogramResult } from "../models/lombScargle";
+import { computePeriodogram, buildPeriodogramAnchors, type PeriodogramResult } from "../models/periodogram";
 
 const COLORS = {
     background: "#1e293b",
@@ -23,7 +23,7 @@ export default function Periodogram() {
 
     const anchors = useMemo(() => buildPeriodogramAnchors(filteredRecords), [filteredRecords]);
 
-    const result = useMemo<PeriodogramResult>(() => computeLombScargle(anchors), [anchors]);
+    const result = useMemo<PeriodogramResult>(() => computePeriodogram(anchors), [anchors]);
 
     const [resizeKey, setResizeKey] = useState(0);
 
