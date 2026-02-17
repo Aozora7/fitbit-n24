@@ -10,18 +10,27 @@ In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/f
 
 ## Features
 
-- **Actogram visualization**: Canvas-based raster plot with one row per calendar day with sleep segment colors based on sleep stages
-- **Periodogram visualization**: Provides frequency analysis of circadian rhythm in the data
-- **Circadian night overlay**: Estimates circadian night based on sleep data and displays it as purple overlay on the actogram.
-- **Circadian night forecast**: Predict circadian night for 2, 7, or 30 days ahead of the latest sleep record using the most recent circadian trend
-- **Schedule overlay**: Define recurring weekly schedules (e.g., work hours) that display as green overlay on the actogram. You can use it to see when your predicted circadian night conflicts with your schedule.
-- **Progressive data loading**: Actogram renders and updates as each page of API data arrives (100 records per page, which is the maximum Fitbit API allows)
-- **Import/export**: Load data from JSON files or export fetched API data for offline use
-- **Adjustable row width**: Set the actogram row length to the estimated circadian period (or any value between 23-26h) so that sleep records line up vertically
-- **Double-plot mode**: Double row width for visualizing patterns that cross row boundaries
-- **Interactive tooltips**: Hover over any sleep block to see date, times, duration, efficiency, and stage breakdown
-- **Adjustable row height**: Slider provides vertical zoom for the actogram
-- **Date filter**: Any continous subset of raw data can be selected, and all visualizations and calculations will only process that subset
+**Visualization**
+
+- Canvas actogram with sleep stage coloring, one row per day
+- Periodogram for circadian frequency analysis
+- Optional double-plot mode for patterns crossing row boundaries
+- Adjustable row height
+- Adjustable row width to match the data's circadian period, allowing sleep records to line up
+- Interactive tooltips with date, times, duration, efficiency, stage breakdown
+
+**Circadian analysis**
+
+- Estimated circadian night overlay (purple) computed from sleep data
+- Forecast circadian night 2/7/30 days ahead using recent trend
+- Schedule overlay (green) to compare circadian night against weekly commitments
+
+**Data**
+
+- Fetch from Fitbit API with progressive loading and IndexedDB caching
+- Import/export JSON
+- Date range filter for all visualizations and calculations
+- Export what you see as PNG
 
 ## Tech stack
 

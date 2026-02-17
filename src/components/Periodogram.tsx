@@ -277,6 +277,7 @@ export default function Periodogram() {
     return (
         <div className="relative mt-4" ref={containerRef}>
             <canvas
+                id="periodogram-canvas"
                 ref={canvasRef}
                 className="w-full cursor-crosshair"
                 onMouseMove={handleMouseMove}

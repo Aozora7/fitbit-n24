@@ -31,25 +31,26 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 
 ## Key files
 
-| File                                             | Purpose                                                                             |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `src/AppContextDef.ts`                           | `ScheduleEntry`, `AppState` interfaces + `AppContext` object (no component)         |
-| `src/AppContext.tsx`                             | `AppProvider` component — all state, derived values, viz settings                   |
-| `src/api/types.ts`                               | `RawSleepRecordV12` (API) and `SleepRecord` (internal) type definitions             |
-| `src/data/useFitbitData.ts`                      | Data orchestrator: cache-first fetch, export, abort                                 |
-| `src/models/circadian/`                          | Circadian period estimation module (pluggable algorithms)                           |
-| `src/models/circadian/index.ts`                  | Public API: `analyzeWithAlgorithm()`, `DEFAULT_ALGORITHM_ID`, type exports          |
-| `src/models/circadian/types.ts`                  | Base types: `CircadianAnalysis`, `CircadianDay`, `GAP_THRESHOLD_DAYS`               |
-| `src/models/circadian/registry.ts`               | Algorithm registry: `registerAlgorithm()`, `getAlgorithm()`, `listAlgorithms()`     |
-| `src/models/circadian/regression/index.ts`       | Weighted regression algorithm (default) — see module header for file structure      |
-| `src/models/circadian/kalman/index.ts`           | Kalman filter algorithm — see module header for file structure                      |
-| `src/models/circadian/csf/index.ts`              | Circular state-space filter algorithm — see module header for file structure        |
-| `src/models/periodogram.ts`                      | Phase coherence periodogram (windowed weighted Rayleigh test)                       |
-| `src/models/actogramData.ts`                     | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)   |
-| `src/models/overlayPath.ts`                      | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()` |
-| `src/components/Actogram/useActogramRenderer.ts` | Canvas rendering engine for the actogram                                            |
-| `src/components/Actogram/useOverlayEditor.ts`    | Interactive overlay editor hook (click/drag/delete control points)                  |
-| `cli/analyze.ts`                                 | CLI entry point for running analysis in Node.js                                     |
+| File                                             | Purpose                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `src/AppContextDef.ts`                           | `ScheduleEntry`, `AppState` interfaces + `AppContext` object (no component)           |
+| `src/AppContext.tsx`                             | `AppProvider` component — all state, derived values, viz settings                     |
+| `src/api/types.ts`                               | `RawSleepRecordV12` (API) and `SleepRecord` (internal) type definitions               |
+| `src/data/useFitbitData.ts`                      | Data orchestrator: cache-first fetch, export, abort                                   |
+| `src/models/circadian/`                          | Circadian period estimation module (pluggable algorithms)                             |
+| `src/models/circadian/index.ts`                  | Public API: `analyzeWithAlgorithm()`, `DEFAULT_ALGORITHM_ID`, type exports            |
+| `src/models/circadian/types.ts`                  | Base types: `CircadianAnalysis`, `CircadianDay`, `GAP_THRESHOLD_DAYS`                 |
+| `src/models/circadian/registry.ts`               | Algorithm registry: `registerAlgorithm()`, `getAlgorithm()`, `listAlgorithms()`       |
+| `src/models/circadian/regression/index.ts`       | Weighted regression algorithm (default) — see module header for file structure        |
+| `src/models/circadian/kalman/index.ts`           | Kalman filter algorithm — see module header for file structure                        |
+| `src/models/circadian/csf/index.ts`              | Circular state-space filter algorithm — see module header for file structure          |
+| `src/models/periodogram.ts`                      | Phase coherence periodogram (windowed weighted Rayleigh test)                         |
+| `src/models/actogramData.ts`                     | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)     |
+| `src/models/overlayPath.ts`                      | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`   |
+| `src/utils/exportPNG.ts`                         | PNG export: composites actogram + periodogram + header/legend into downloadable image |
+| `src/components/Actogram/useActogramRenderer.ts` | Canvas rendering engine for the actogram                                              |
+| `src/components/Actogram/useOverlayEditor.ts`    | Interactive overlay editor hook (click/drag/delete control points)                    |
+| `cli/analyze.ts`                                 | CLI entry point for running analysis in Node.js                                       |
 
 ## Conventions
 

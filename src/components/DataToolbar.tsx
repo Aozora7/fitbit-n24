@@ -1,10 +1,23 @@
 import { useRef, useCallback } from "react";
 import { useAppContext } from "../useAppContext";
 import type { OverlayControlPoint } from "../models/overlayPath";
+import { exportActogramPNG } from "../utils/exportPNG";
 
 export default function DataToolbar() {
-    const { data, auth, hasClientId, handleFetch, overlayControlPoints, setOverlayControlPoints, manualOverlayDays } =
-        useAppContext();
+    const {
+        data,
+        auth,
+        hasClientId,
+        handleFetch,
+        overlayControlPoints,
+        setOverlayControlPoints,
+        manualOverlayDays,
+        filteredRecords,
+        circadianAnalysis,
+        daySpan,
+        colorMode,
+        showPeriodogram,
+    } = useAppContext();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = useCallback(
@@ -81,6 +94,28 @@ export default function DataToolbar() {
                     className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
                 >
                     Export JSON
+                </button>
+            )}
+
+            {data.records.length > 0 && (
+                <button
+                    onClick={() =>
+                        exportActogramPNG(
+                            {
+                                recordCount: filteredRecords.length,
+                                tau: circadianAnalysis.tau,
+                                drift: circadianAnalysis.dailyDrift,
+                                rSquared: circadianAnalysis.rSquared,
+                                daySpan,
+                                algorithmId: circadianAnalysis.algorithmId,
+                                colorMode,
+                            },
+                            { includePeriodogram: showPeriodogram },
+                        )
+                    }
+                    className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                >
+                    Save as PNG
                 </button>
             )}
 

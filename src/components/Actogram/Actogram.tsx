@@ -49,19 +49,19 @@ export default function Actogram() {
             tauHours,
             showSchedule,
             scheduleEntries,
-sortDirection,
+            sortDirection,
             ...(editorActive ? { leftMargin: 80 + EDITOR_GUTTER } : {}),
         }),
         [
-doublePlot,
-effectiveRowHeight,
-colorMode,
-tauHours,
-showSchedule,
-scheduleEntries,
+            doublePlot,
+            effectiveRowHeight,
+            colorMode,
+            tauHours,
+            showSchedule,
+            scheduleEntries,
             sortDirection,
-editorActive,
-]
+            editorActive,
+        ]
     );
 
     const editorConfig = useMemo(
@@ -127,6 +127,7 @@ editorActive,
     return (
         <div className="relative">
             <canvas
+                id="actogram-canvas"
                 ref={canvasRef}
                 className="w-full cursor-crosshair"
                 onMouseDown={editorActive ? editor.onMouseDown : undefined}

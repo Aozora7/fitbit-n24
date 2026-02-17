@@ -608,6 +608,12 @@ When manual overlay control points exist, the interpolated overlay renders in cy
 
 The `test-data/` directory (gitignored, independent git repo) contains subdirectories with `sleep.json` + `overlay.json` pairs. `circadian.groundtruth.test.ts` iterates all pairs, runs `analyzeWithAlgorithm()` for each registered algorithm on each dataset, and scores the algorithm's output against the manual overlay using circular midpoint distance (mean, median, p90). Tests skip gracefully when `test-data/` is missing.
 
+## PNG export
+
+`exportActogramPNG()` in `utils/exportPNG.ts` composites a self-contained PNG image from the live canvases. It creates an offscreen canvas at the actogram's native DPR resolution, draws a header (title + stats: record count, tau, daily drift, R², day span), copies the actogram canvas via `drawImage`, optionally copies the periodogram canvas (when visible), and appends a color legend (stage colors or quality gradient depending on current color mode). The result is downloaded as `fitbit-actogram-YYYY-MM-DD.png` via an anchor-click pattern.
+
+The canvases are accessed via `document.getElementById` (`id="actogram-canvas"` and `id="periodogram-canvas"`) to avoid threading refs through context. The "Save as PNG" button appears in `DataToolbar.tsx` alongside the existing export buttons.
+
 ## Tooltip interaction
 
 The `getTooltipInfo` callback converts mouse coordinates to row index and hour, then searches for a matching sleep block. For v1.2 records with stage data, the tooltip shows a breakdown: `D:78 L:157 R:63 W:81min`. It also shows the quality score percentage. Hovering over the circadian overlay shows the estimated night window, local tau, and confidence level (and whether it's a forecast). The tooltip is rendered as a fixed-position React div overlaying the canvas.

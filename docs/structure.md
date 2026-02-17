@@ -86,6 +86,9 @@ src/
       periodogram.test.ts           Periodogram peak detection tests
       actogramData.test.ts          Row building, midnight crossings, tau-mode tests
 
+  utils/
+    exportPNG.ts                    PNG export: composites header, actogram canvas, optional periodogram canvas, and legend into a single downloadable PNG
+
   components/
     Header.tsx                      App header: record count, circadian stats (tau, drift, shift, avg sleep), privacy modal
     DataToolbar.tsx                  Auth buttons, fetch/stop, import/export, clear cache
