@@ -231,6 +231,21 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
     for (const dataset of datasets) {
         describe(dataset.name, () => {
             for (const algorithm of algorithms) {
+                it(`[${algorithm.id}] forecast days do not overlap sleep record dates`, () => {
+                    const FORECAST_DAYS = 7;
+                    const analysis = algorithm.analyze(dataset.records, FORECAST_DAYS);
+                    const forecasts = analysis.days.filter((d) => d.isForecast);
+
+                    expect(forecasts.length).toBe(FORECAST_DAYS);
+
+                    // No forecast day should fall on a date that has a sleep record.
+                    // Regression: any day with a sleep record is a data day, not a forecast.
+                    const recordDates = new Set(dataset.records.map((r) => r.dateOfSleep));
+                    for (const fc of forecasts) {
+                        expect(recordDates.has(fc.date), `forecast day ${fc.date} has a sleep record`).toBe(false);
+                    }
+                });
+
                 it(`[${algorithm.id}] overlay matches ground truth`, () => {
                     const analysis = algorithm.analyze(dataset.records);
                     const algoMap = new Map(analysis.days.map((d) => [d.date, d]));
@@ -466,6 +481,26 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                     expect(maxTauDeltaWindow).toBeLessThan(50);
                     expect(severeStreakCount).toBeLessThan(10);
                     expect(penalty.totalPenalty).toBeLessThan(500);
+
+                    // ── Last-14-days edge accuracy ──────────────────────
+                    // Guards against algorithms lagging at the end of the dataset
+                    // (e.g. RTS smoother's unsmoothed terminal state bias).
+                    // Thresholds are the tightest both CSF and regression can pass
+                    // across all ground truth datasets.
+                    const EDGE_DAYS = 14;
+                    if (pairs.length >= EDGE_DAYS) {
+                        const edgePairs = [...pairs].sort((a, b) => a.date.localeCompare(b.date)).slice(-EDGE_DAYS);
+                        const edgeErrs = edgePairs.map((p) => p.absError).sort((a, b) => a - b);
+                        const edgeMean = edgeErrs.reduce((a, b) => a + b, 0) / edgeErrs.length;
+                        const edgeP90 = edgeErrs[Math.floor(edgeErrs.length * 0.9)]!;
+                        if (VERBOSE) {
+                            console.log(
+                                `  last${EDGE_DAYS}d [${algorithm.id}]: mean=${edgeMean.toFixed(2)}h p90=${edgeP90.toFixed(2)}h`
+                            );
+                        }
+                        expect(edgeMean).toBeLessThan(4.0);
+                        expect(edgeP90).toBeLessThan(10.0);
+                    }
                     // TODO: Phase step bounds - currently all algorithms violate
                     // The night window duration changes cause start/end to shift
                     // even when midpoint is smooth. Need to fix algorithm output.
