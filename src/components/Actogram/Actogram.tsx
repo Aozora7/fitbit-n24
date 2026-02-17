@@ -49,9 +49,19 @@ export default function Actogram() {
             tauHours,
             showSchedule,
             scheduleEntries,
+sortDirection,
             ...(editorActive ? { leftMargin: 80 + EDITOR_GUTTER } : {}),
         }),
-        [doublePlot, effectiveRowHeight, colorMode, tauHours, showSchedule, scheduleEntries, editorActive]
+        [
+doublePlot,
+effectiveRowHeight,
+colorMode,
+tauHours,
+showSchedule,
+scheduleEntries,
+            sortDirection,
+editorActive,
+]
     );
 
     const editorConfig = useMemo(

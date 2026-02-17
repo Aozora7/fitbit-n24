@@ -62,7 +62,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Algorithm registry** — `CircadianAlgorithm` interface defines `id`, `name`, `description`, `analyze()`; algorithms register via `registerAlgorithm()` at module load; `CircadianAnalysis` is the base result type, `RegressionAnalysis` extends it with algorithm-specific fields (`anchors`, `anchorCount`, etc.)
 - **IndexedDB caching** — raw API records cached per-user; incremental fetch only retrieves newer records
 - **`RawSleepRecordV12`** is the raw API type; **`SleepRecord`** is the parsed internal type with `Date` objects and computed `sleepScore`
-- **Row ordering** — `buildActogramRows` returns rows newest-first; in double-plot, the right half of row `i` shows `rows[i-1]`'s data (the next calendar day)
+- **Row ordering** — `buildActogramRows` returns rows newest-first by default (pass `sortDirection: "oldest"` for oldest-first); double-plot uses next-day data (row `i-1` for newest-first, row `i+1` for oldest-first)
 - **Double-plot layer semantics** — sleep blocks and schedule overlay use next-day data on the right half; circadian overlay duplicates same-day data (tooltip uses `hour % 24` hit-testing)
 - **`nightStartHour`/`nightEndHour`** can be negative or >24 (`normalizedMid ± halfDur`); always normalize with `((h % 24) + 24) % 24` before rendering
 - **Renderer draw order** — circadian overlay → schedule overlay → sleep blocks → date labels → editor overlay; later layers paint over earlier ones

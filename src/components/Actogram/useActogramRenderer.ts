@@ -19,6 +19,7 @@ export interface ActogramConfig {
     bottomMargin: number;
     showSchedule?: boolean;
     scheduleEntries?: ScheduleEntry[];
+    sortDirection?: "newest" | "oldest";
 }
 
 const DEFAULT_CONFIG: ActogramConfig = {
@@ -86,7 +87,7 @@ export function useActogramRenderer(
         overlayEditMode?: boolean;
         editorDraw?: (ctx: CanvasRenderingContext2D, xScale: (h: number) => number, plotTop: number) => void;
         canvasRef?: React.RefObject<HTMLCanvasElement | null>;
-    } = {},
+    } = {}
 ) {
     const internalRef = useRef<HTMLCanvasElement>(null);
     const canvasRef = options.canvasRef ?? internalRef;
@@ -94,6 +95,8 @@ export function useActogramRenderer(
     const tauMode = cfg.tauHours !== 24;
     const baseHours = tauMode ? cfg.tauHours : 24;
     const hoursPerRow = cfg.doublePlot ? baseHours * 2 : baseHours;
+    const newestFirst = cfg.sortDirection !== "oldest";
+    const nextDayOffset = newestFirst ? -1 : 1;
     // Wider left margin for tau mode labels ("YYYY-MM-DD HH:mm")
     if (tauMode && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
         cfg.leftMargin = 110;
@@ -117,15 +120,18 @@ export function useActogramRenderer(
             const hour = xScale.invert(x);
 
             // Find block at this hour
-            // In double-plot mode, the right half shows the next day's data (rows are newest-first, so next day is rowIdx-1)
+            // In double-plot mode, the right half shows the next day's data
             const blocksToCheck: { block: (typeof row.blocks)[0]; offset: number; sourceRow: typeof row }[] = [];
             for (const block of row.blocks) {
                 blocksToCheck.push({ block, offset: 0, sourceRow: row });
             }
-            if (cfg.doublePlot && rowIdx > 0) {
-                const nextDayRow = rows[rowIdx - 1]!;
-                for (const block of nextDayRow.blocks) {
-                    blocksToCheck.push({ block, offset: baseHours, sourceRow: nextDayRow });
+            if (cfg.doublePlot) {
+                const nextIdx = rowIdx + nextDayOffset;
+                if (nextIdx >= 0 && nextIdx < rows.length) {
+                    const nextDayRow = rows[nextIdx]!;
+                    for (const block of nextDayRow.blocks) {
+                        blocksToCheck.push({ block, offset: baseHours, sourceRow: nextDayRow });
+                    }
                 }
             }
 
@@ -256,7 +262,7 @@ export function useActogramRenderer(
         }
 
         // Draw circadian overlay
-        // In double-plot mode, right half shows the next day's overlay (rows are newest-first, so next day is i-1)
+        // Circadian overlay duplicates same day's prediction on both halves
         const hasManualOverlay = (options.manualOverlayDays?.length ?? 0) > 0;
 
         // When manual overlay exists AND edit mode is on, draw algorithm overlay dimmed as reference
@@ -403,7 +409,7 @@ export function useActogramRenderer(
         }
 
         // Draw schedule overlay
-        // In double-plot mode, right half shows the next day's schedule (rows are newest-first, so next day is i-1)
+        // In double-plot mode, right half shows the next day's schedule
         if (cfg.showSchedule && cfg.scheduleEntries && cfg.scheduleEntries.length > 0) {
             ctx.fillStyle = "rgba(34, 197, 94, 0.2)"; // green with alpha
 
@@ -494,16 +500,18 @@ export function useActogramRenderer(
                 // Left side: this row's schedule
                 drawScheduleForRow(row, y, 0);
 
-                // Right side: next day's schedule (rows are newest-first, so next day is i-1)
-                if (cfg.doublePlot && i > 0) {
-                    drawScheduleForRow(rows[i - 1]!, y, baseHours);
+                // Right side: next day's schedule
+                if (cfg.doublePlot) {
+                    const nextIdx = i + nextDayOffset;
+                    if (nextIdx >= 0 && nextIdx < rows.length) {
+                        drawScheduleForRow(rows[nextIdx]!, y, baseHours);
+                    }
                 }
             }
         }
 
         // Draw sleep blocks
-        // In double-plot mode, the right half of row i shows the NEXT day's data.
-        // Rows are newest-first, so the next day for row i is row i-1.
+        // In double-plot mode, the right half of row i shows the next day's data
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i]!;
             const y = plotTop + i * cfg.rowHeight;
@@ -542,11 +550,14 @@ export function useActogramRenderer(
                 drawBlockAt(block, 0, row);
             }
 
-            // Right side: next day's blocks (rows are newest-first, so next day is i-1)
-            if (cfg.doublePlot && i > 0) {
-                const nextDayRow = rows[i - 1]!;
-                for (const block of nextDayRow.blocks) {
-                    drawBlockAt(block, baseHours, nextDayRow);
+            // Right side: next day's blocks
+            if (cfg.doublePlot) {
+                const nextIdx = i + nextDayOffset;
+                if (nextIdx >= 0 && nextIdx < rows.length) {
+                    const nextDayRow = rows[nextIdx]!;
+                    for (const block of nextDayRow.blocks) {
+                        drawBlockAt(block, baseHours, nextDayRow);
+                    }
                 }
             }
         }
