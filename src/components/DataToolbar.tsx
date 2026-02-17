@@ -2,6 +2,7 @@ import { useRef, useCallback } from "react";
 import { useAppContext } from "../useAppContext";
 import type { OverlayControlPoint } from "../models/overlayPath";
 import { exportActogramPNG } from "../utils/exportPNG";
+import { RefreshCw, Square, LogIn, LogOut, Trash2, Upload, Download, Image, Construction } from "lucide-react";
 
 export default function DataToolbar() {
     const {
@@ -39,7 +40,7 @@ export default function DataToolbar() {
 
             if (fileInputRef.current) fileInputRef.current.value = "";
         },
-        [data.importFromFile, setOverlayControlPoints],
+        [data.importFromFile, setOverlayControlPoints]
     );
 
     return (
@@ -50,23 +51,30 @@ export default function DataToolbar() {
                         <>
                             <button
                                 onClick={data.fetching ? data.stopFetch : handleFetch}
-                                className={`rounded px-3 py-1.5 text-sm text-white ${
+                                className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm text-white ${
                                     data.fetching ? "bg-red-700 hover:bg-red-600" : "bg-green-700 hover:bg-green-600"
                                 }`}
                             >
-                                {data.fetching ? "Stop" : "Fetch from Fitbit"}
+                                {data.fetching ? (
+                                    <Square size={14} strokeWidth={3} />
+                                ) : (
+                                    <RefreshCw size={14} strokeWidth={3} />
+                                )}
+                                {data.fetching ? "Stop" : "Fetch"}
                             </button>
                             <button
                                 onClick={auth.signOut}
-                                className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                                className="inline-flex items-center gap-1.5 rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
                             >
+                                <LogOut size={14} strokeWidth={3} />
                                 Sign out
                             </button>
                             {auth.userId && (
                                 <button
                                     onClick={() => data.clearCache(auth.userId!)}
-                                    className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                                    className="inline-flex items-center gap-1.5 rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
                                 >
+                                    <Trash2 size={14} strokeWidth={3} />
                                     Clear cache
                                 </button>
                             )}
@@ -75,25 +83,28 @@ export default function DataToolbar() {
                         <button
                             onClick={auth.signIn}
                             disabled={auth.loading}
-                            className="rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 rounded bg-blue-700 px-3 py-1.5 text-sm text-white hover:bg-blue-600 disabled:opacity-50"
                         >
-                            {auth.loading ? "Authenticating..." : "Sign in with Fitbit"}
+                            <LogIn size={14} strokeWidth={3} />
+                            {auth.loading ? "Authenticating..." : "Sign in"}
                         </button>
                     )}
                 </>
             )}
 
-            <label className="cursor-pointer rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600">
-                Import JSON
+            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600">
+                <Download size={14} strokeWidth={3} />
+                Import
                 <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileChange} className="hidden" />
             </label>
 
             {data.records.length > 0 && (
                 <button
                     onClick={data.exportToFile}
-                    className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                    className="inline-flex items-center gap-1.5 rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
                 >
-                    Export JSON
+                    <Upload size={14} strokeWidth={3} />
+                    Export
                 </button>
             )}
 
@@ -110,12 +121,13 @@ export default function DataToolbar() {
                                 algorithmId: circadianAnalysis.algorithmId,
                                 colorMode,
                             },
-                            { includePeriodogram: showPeriodogram },
+                            { includePeriodogram: showPeriodogram }
                         )
                     }
-                    className="rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+                    className="inline-flex items-center gap-1.5 rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
                 >
-                    Save as PNG
+                    <Image size={14} strokeWidth={3} />
+                    Save PNG
                 </button>
             )}
 
@@ -136,9 +148,10 @@ export default function DataToolbar() {
                         a.click();
                         URL.revokeObjectURL(url);
                     }}
-                    className="rounded bg-cyan-800 px-3 py-1.5 text-sm text-gray-200 hover:bg-cyan-700"
+                    className="inline-flex items-center gap-1.5 rounded bg-cyan-800 px-3 py-1.5 text-sm text-gray-200 hover:bg-cyan-700"
                 >
-                    Export with overlay
+                    <Construction size={14} strokeWidth={3} />
+                    Export overlay
                 </button>
             )}
 

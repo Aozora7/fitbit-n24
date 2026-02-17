@@ -15,7 +15,7 @@ import {
 import type { RegressionAnalysis } from "../src/models/circadian/index.js";
 import type { SleepRecord } from "../src/api/types.js";
 
-const { classifyAnchor, evaluateWindow, gaussian } = _internals;
+const { evaluateWindow, gaussian, computeAnchorWeight } = _internals;
 
 const file = process.argv[2];
 const startDate = process.argv[3] || "2023-10-01";
@@ -62,7 +62,7 @@ if (isRegression) {
         const m = Math.round(((((midHour % 24) + 24) % 24) - h) * 60);
         console.log(
             `  ${a.date}  day=${a.dayNumber}  mid=${h}:${String(m).padStart(2, "0")}  ` +
-                `unwrapped=${a.midpointHour.toFixed(1)}h  tier=${a.tier}  weight=${a.weight.toFixed(3)}`
+                `unwrapped=${a.midpointHour.toFixed(1)}h  weight=${a.weight.toFixed(3)}`
         );
     }
 }
@@ -74,11 +74,11 @@ const rangeRecords = records
 
 console.log(`\n--- All sleep records in range (${rangeRecords.length}) ---`);
 for (const r of rangeRecords) {
-    const cls = classifyAnchor(r);
-    const tierStr = cls ? `tier=${cls.tier} w=${cls.weight.toFixed(3)}` : "not-anchor";
+    const weight = computeAnchorWeight(r);
+    const weightStr = weight !== null ? `w=${weight.toFixed(3)}` : "not-anchor";
     console.log(
         `  ${r.dateOfSleep}  ${r.startTime.toLocaleTimeString()}-${r.endTime.toLocaleTimeString()}  ` +
-            `dur=${r.durationHours.toFixed(1)}h  main=${r.isMainSleep}  score=${(r.sleepScore * 100).toFixed(0)}  ${tierStr}`
+            `dur=${r.durationHours.toFixed(1)}h  main=${r.isMainSleep}  score=${(r.sleepScore * 100).toFixed(0)}  ${weightStr}`
     );
 }
 
@@ -154,17 +154,14 @@ if (isRegression) {
                 ? (() => {
                       const spacings: number[] = [];
                       for (let i = 1; i < regAnalysis.anchors.length; i++) {
-                          spacings.push(
-                              regAnalysis.anchors[i]!.dayNumber - regAnalysis.anchors[i - 1]!.dayNumber
-                          );
+                          spacings.push(regAnalysis.anchors[i]!.dayNumber - regAnalysis.anchors[i - 1]!.dayNumber);
                       }
                       spacings.sort((a, b) => a - b);
                       return spacings[Math.floor(spacings.length / 2)]!;
                   })()
                 : 1;
         const expectedPts = medianSpacing > 0 ? (WINDOW_HALF * 2) / medianSpacing : 10;
-        const slopeConf =
-            Math.min(1, result.pointsUsed / expectedPts) * (1 - Math.min(1, result.residualMAD / 4));
+        const slopeConf = Math.min(1, result.pointsUsed / expectedPts) * (1 - Math.min(1, result.residualMAD / 4));
 
         console.log(`\n  Day ${d} (${dateStr}):`);
         console.log(`    Window: ±${WINDOW_HALF} days, ${result.pointsUsed} anchors used`);
@@ -191,7 +188,7 @@ if (isRegression) {
             const midNorm = ((a.midpointHour % 24) + 24) % 24;
             const inRange = a.date >= startDate && a.date <= endDate ? " *" : "  ";
             console.log(
-                `     ${inRange}${a.date} d=${a.dayNumber} mid=${midNorm.toFixed(1)}h tier=${a.tier} ` +
+                `     ${inRange}${a.date} d=${a.dayNumber} mid=${midNorm.toFixed(1)}h ` +
                     `dist=${a.dist} gw=${a.gw.toFixed(3)} tw=${a.totalWeight.toFixed(4)}`
             );
         }

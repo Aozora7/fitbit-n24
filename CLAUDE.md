@@ -48,6 +48,8 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/actogramData.ts`                     | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)     |
 | `src/models/overlayPath.ts`                      | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`   |
 | `src/utils/exportPNG.ts`                         | PNG export: composites actogram + periodogram + header/legend into downloadable image |
+| `src/components/DataToolbar.tsx`                 | Auth buttons, fetch/stop, import/export, PNG save, overlay export (icon+text buttons) |
+| `src/components/VisualizationControls.tsx`       | Display toggles, algorithm selector, color mode, row height/width, forecast controls  |
 | `src/components/Actogram/useActogramRenderer.ts` | Canvas rendering engine for the actogram                                              |
 | `src/components/Actogram/useOverlayEditor.ts`    | Interactive overlay editor hook (click/drag/delete control points)                    |
 | `cli/analyze.ts`                                 | CLI entry point for running analysis in Node.js                                       |
@@ -72,6 +74,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Tests** — Vitest, co-located in `__tests__/` dirs next to source; test files excluded from `tsc -b` build via `tsconfig.json` exclude; `_internals` barrel export exposes private helpers for unit testing (tree-shaken from production)
 - **Test categories** — `correctness:` tests hard-fail on violations; `benchmark:` tests log `BENCHMARK` lines with soft targets but only hard-fail on catastrophic guards
 - **Hard drift limits** — `localDrift` must be in [-1.5, +3.0] h/day (i.e. `localTau` in [22.5, 27.0]); enforced by `assertHardDriftLimits()` across all tests
+- **This is a TypeScript ESM project.** — Do not use CommonJS patterns (require, module.exports). Hook scripts and config files that need CommonJS must use .cjs extension.
 
 ## Documentation
 
