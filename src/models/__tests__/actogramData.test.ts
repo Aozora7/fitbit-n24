@@ -75,6 +75,26 @@ describe("buildActogramRows", () => {
         expect(jan1!.blocks[0]!.startHour).toBeCloseTo(13, 1);
         expect(jan1!.blocks[0]!.endHour).toBeCloseTo(14.5, 1);
     });
+
+    it("sortDirection=oldest returns rows oldest-first", () => {
+        const records = [
+            makeRecord("2024-01-01T23:00:00", "2024-01-02T07:00:00", 1),
+            makeRecord("2024-01-03T23:00:00", "2024-01-04T07:00:00", 2),
+        ];
+        const rows = buildActogramRows(records, 0, "oldest");
+        expect(rows[0]!.date).toBe("2024-01-01");
+        expect(rows[rows.length - 1]!.date).toBe("2024-01-04");
+    });
+
+    it("sortDirection=newest returns rows newest-first", () => {
+        const records = [
+            makeRecord("2024-01-01T23:00:00", "2024-01-02T07:00:00", 1),
+            makeRecord("2024-01-03T23:00:00", "2024-01-04T07:00:00", 2),
+        ];
+        const rows = buildActogramRows(records, 0, "newest");
+        expect(rows[0]!.date).toBe("2024-01-04");
+        expect(rows[rows.length - 1]!.date).toBe("2024-01-01");
+    });
 });
 
 describe("buildTauRows", () => {
@@ -103,6 +123,31 @@ describe("buildTauRows", () => {
             makeRecord("2024-01-03T23:00:00", "2024-01-04T07:00:00", 2),
         ];
         const rows = buildTauRows(records, 24.5);
+        // Newest first means startMs should decrease
+        for (let i = 1; i < rows.length; i++) {
+            expect(rows[i]!.startMs!).toBeLessThan(rows[i - 1]!.startMs!);
+        }
+    });
+
+    it("sortDirection=oldest returns rows oldest-first", () => {
+        const records = [
+            makeRecord("2024-01-01T23:00:00", "2024-01-02T07:00:00", 1),
+            makeRecord("2024-01-03T23:00:00", "2024-01-04T07:00:00", 2),
+        ];
+        const rows = buildTauRows(records, 24, 0, "oldest");
+        // Oldest first means startMs should increase
+        for (let i = 1; i < rows.length; i++) {
+            expect(rows[i]!.startMs!).toBeGreaterThan(rows[i - 1]!.startMs!);
+        }
+        expect(rows[0]!.date).toBe("2024-01-01");
+    });
+
+    it("sortDirection=newest returns rows newest-first", () => {
+        const records = [
+            makeRecord("2024-01-01T23:00:00", "2024-01-02T07:00:00", 1),
+            makeRecord("2024-01-03T23:00:00", "2024-01-04T07:00:00", 2),
+        ];
+        const rows = buildTauRows(records, 24, 0, "newest");
         // Newest first means startMs should decrease
         for (let i = 1; i < rows.length; i++) {
             expect(rows[i]!.startMs!).toBeLessThan(rows[i - 1]!.startMs!);

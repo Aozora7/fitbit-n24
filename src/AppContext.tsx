@@ -48,26 +48,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     const [overlaySleepWindow, setOverlaySleepWindow] = usePersistedState("viz.overlaySleepWindow", 8);
 
-    // Auto-import dev data file if present (development convenience)
-    const autoImportedRef = useRef(false);
-    useEffect(() => {
-        if (!autoImportedRef.current && data.records.length === 0 && !data.loading) {
-            autoImportedRef.current = true;
-            fetch("/dev-data/auto-import.json")
-                .then(async (res) => {
-                    if (res.ok && res.headers.get("content-type")?.includes("application/json")) {
-                        const blob = await res.blob();
-                        const file = new File([blob], "auto-import.json", { type: "application/json" });
-                        await data.importFromFile(file);
-                        console.log("[DevMode] Auto-imported dev-data/auto-import.json");
-                    }
-                })
-                .catch(() => {
-                    // File doesn't exist, ignore silently
-                });
-        }
-    }, [data.records.length, data.loading, data.importFromFile]);
-
     // Auto-fetch after OAuth login (token appears and no data loaded yet)
     const autoFetchedRef = useRef(false);
     useEffect(() => {
