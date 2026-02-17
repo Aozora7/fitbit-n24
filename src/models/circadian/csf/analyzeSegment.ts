@@ -4,7 +4,7 @@ import type { CSFConfig, SegmentResult } from "./types";
 import { DEFAULT_CONFIG, TAU_MIN, TAU_MAX } from "./types";
 import { prepareAnchors } from "./anchors";
 import { forwardPass, rtsSmoother, normalizeAngle, circularDiff } from "./filter";
-import { smoothOutputPhase } from "./smoothing";
+import { smoothOutputPhase, correctEdge } from "./smoothing";
 
 export function analyzeSegment(
     records: SleepRecord[],
@@ -25,12 +25,19 @@ export function analyzeSegment(
     const firstAnchor = anchors[0]!;
     const lastAnchor = anchors[anchors.length - 1]!;
     const segFirstDay = firstAnchor.dayNumber;
-    const segLastDay = lastAnchor.dayNumber + extraDays;
+    // Use last record's day (not last anchor's) so low-tier records that
+    // aren't anchors still count as data days, not forecast days
+    const lastRecordDay = Math.round(
+        (new Date(records[records.length - 1]!.dateOfSleep + "T00:00:00").getTime() - globalFirstDateMs) / 86_400_000
+    );
+    const segLastDay = Math.max(lastAnchor.dayNumber, lastRecordDay) + extraDays;
     const totalDays = segLastDay - segFirstDay;
 
     const forwardStates = forwardPass(anchors, segFirstDay, segLastDay, config);
     const smoothedStates = rtsSmoother(forwardStates, config);
     const outputStates = smoothOutputPhase(smoothedStates, 5, 8);
+    const lastDataLocalDay = Math.max(lastAnchor.dayNumber, lastRecordDay) - segFirstDay;
+    correctEdge(outputStates, anchors, segFirstDay, lastDataLocalDay, totalDays);
 
     const anchorByDay = new Map(anchors.map((a) => [a.dayNumber, a] as const));
 

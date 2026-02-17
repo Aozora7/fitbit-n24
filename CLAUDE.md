@@ -65,7 +65,8 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/circadian/csf/types.ts`                 | CSF-specific types: `CSFAnalysis`, `CSFState`, `CSFConfig`, constants                         |
 | `src/models/circadian/csf/filter.ts`                | Von Mises filter: predict, update, forwardPass, rtsSmoother                                   |
 | `src/models/circadian/csf/anchors.ts`               | Anchor preparation (reuses regression tier classification)                                    |
-| `src/models/circadian/csf/analyzeSegment.ts`        | Per-segment CSF pipeline: anchors → filter → smoother → output                                |
+| `src/models/circadian/csf/smoothing.ts`             | Output phase smoothing (`smoothOutputPhase`) + edge correction (`correctEdge`)                |
+| `src/models/circadian/csf/analyzeSegment.ts`        | Per-segment CSF pipeline: anchors → filter → smoother → edge correction → output              |
 | `src/models/circadian/csf/mergeSegments.ts`         | Merge CSF segments into single result                                                         |
 | `src/models/calculateSleepScore.ts`                 | Sleep quality scoring (regression model)                                                      |
 | `src/models/lombScargle.ts`                         | Phase coherence periodogram (despite the filename, uses Rayleigh test, not Lomb-Scargle)      |

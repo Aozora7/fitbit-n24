@@ -463,7 +463,9 @@ This handles 24-hour wraparound naturally while maintaining unbounded phase for 
 
 1. **Anchor preparation**: Same tier classification as regression algorithm (A/B/C)
 2. **Forward filter + RTS smoother**: Initialize from first anchor, predict/update forward, then RTS backward pass
-3. **Output generation**: Convert smoothed states to CircadianDay[] with normalized phase
+3. **Output smoothing**: Gaussian smoothing of phase and tau (σ=5 days, window=±8)
+4. **Edge correction + forecast re-anchoring**: Re-anchors last ~10 data-backed days using Gaussian-weighted local fit to nearby anchor clock hours (unwrapped clock-hour space, quadratic blend ramp). Forecast days are then linearly extrapolated from the corrected last data day using the anchor-based slope, replacing the forward-pass predictions.
+5. **Output generation**: Convert smoothed states to CircadianDay[] with normalized phase
 
 #### Key advantages
 
@@ -471,7 +473,6 @@ This handles 24-hour wraparound naturally while maintaining unbounded phase for 
 - Phase tracked in unbounded space (accurate drift estimation over years)
 - Unified confidence from posterior variance
 - Natural handling of gaps through filter prediction
-- 3 pipeline steps vs 7 for regression
 
 ## Circadian algorithm parameters
 
@@ -541,6 +542,7 @@ All locations below are relative to `src/models/circadian/`.
 | Anchor tiers           | Same as regression (A/B/C classification)                     | `csf/anchors.ts`   |
 | Ambiguity resolution   | Snaps measurements to predicted phase's branch                | `csf/filter.ts`    |
 | Output smoothing       | Phase/tau: σ=5 days, window=±8; Duration: σ=3 days, window=±5 | `csf/smoothing.ts` |
+| Edge correction        | Window=10 days, anchor σ=7 days, radius=±15 days, quadratic blend ramp | `csf/smoothing.ts` |
 | Weight scaling         | Linear (not squared) - reduces Tier A dominance               | `csf/filter.ts`    |
 | Tau regularization     | Asymmetric: 4x stronger pull toward forward drift             | `csf/filter.ts`    |
 | Max correction/step    | 4.0 h (clamps phase and tau innovation per update)            | `csf/types.ts`     |
