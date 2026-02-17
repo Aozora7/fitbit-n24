@@ -23,24 +23,26 @@ export default function DataToolbar() {
 
     const handleFileChange = useCallback(
         async (e: React.ChangeEvent<HTMLInputElement>) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
+            const files = e.target.files;
+            if (!files || files.length === 0) return;
 
-            // Read the file to check for overlay before passing to importFromFile
-            const text = await file.text();
-            const json = JSON.parse(text);
-            if (json.controlPoints && Array.isArray(json.controlPoints)) {
-                setOverlayControlPoints(json.controlPoints as OverlayControlPoint[]);
+            const fileArray = Array.from(files).filter((f): f is File => f != null);
+            const firstFile = fileArray[0];
+
+            if (firstFile) {
+                const text = await firstFile.text();
+                const json = JSON.parse(text);
+
+                if (json.controlPoints && Array.isArray(json.controlPoints)) {
+                    setOverlayControlPoints(json.controlPoints as OverlayControlPoint[]);
+                }
             }
 
-            // Re-create the file blob for importFromFile (it reads the file independently)
-            const blob = new Blob([text], { type: "application/json" });
-            const reimported = new File([blob], file.name, { type: file.type });
-            await data.importFromFile(reimported);
+            await data.importFromFiles(fileArray);
 
             if (fileInputRef.current) fileInputRef.current.value = "";
         },
-        [data.importFromFile, setOverlayControlPoints]
+        [data.importFromFiles, setOverlayControlPoints]
     );
 
     return (
@@ -95,7 +97,14 @@ export default function DataToolbar() {
             <label className="inline-flex cursor-pointer items-center gap-1.5 rounded bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600">
                 <Download size={14} strokeWidth={3} />
                 Import
-                <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileChange} className="hidden" />
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    multiple
+                    onChange={handleFileChange}
+                    className="hidden"
+                />
             </label>
 
             {data.records.length > 0 && (

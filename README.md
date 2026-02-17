@@ -69,12 +69,14 @@ To fetch data directly from the Fitbit API:
 The app starts empty. You can:
 
 - **Fetch from Fitbit**: Sign in via OAuth and fetch all historical sleep data (v1.2 API with sleep stages). Data is cached in IndexedDB; subsequent fetches only retrieve new records.
-- **Import JSON**: Load a previously exported file or raw Fitbit API v1.2 response data
-- **Export JSON**: Save the current dataset as a JSON file that can be re-imported later
+- **Import JSON**: Load a previously exported file or raw Fitbit API v1.2 response data.
+- **Import Google Takeout data**: Multiple sleep-YYYY-MM-DD.json files from Takeout can be imported at the same time.
+- **Export JSON**: Save the current dataset as a JSON file that can be re-imported later.
 
 Supported import formats:
 
 - Fitbit API v1.2 response: `{ "sleep": [...] }` or array of pages
+- Flat array of records: `[ { dateOfSleep, startTime, ... }, ... ]`
 - Previously exported data from this app
 
 ## Project structure

@@ -97,7 +97,7 @@ React hook managing the records state with three mutation paths:
 
 - `setRecords(recs)`: Replace all records (sort + dedup)
 - `appendRecords(newRecs)`: Merge new records into existing set (for progressive loading)
-- `importFromFile(file)`: Create a blob URL from the file and delegate to `loadLocalData`
+- `importFromFiles(files)`: Load records from one or more JSON files, merging all into one dataset (single transaction)
 
 ### `useFitbitData.ts`
 
@@ -105,6 +105,7 @@ Orchestrator hook that wraps `useSleepData` with fetch lifecycle, caching, and e
 
 - `startFetch(token, userId)`: Two-phase fetch — load IndexedDB cache first, then fetch only records newer than the latest cached date via `fetchNewSleepRecords()`. Falls back to full fetch via `fetchAllSleepRecords()` if no cache exists.
 - `stopFetch()`: Aborts the current fetch via `AbortController`, keeping already-fetched data.
+- `importFromFiles(files)`: Load records from one or more JSON files, merging all into one dataset.
 - `exportToFile()`: Downloads raw API records (or internal records if imported) as JSON.
 - `clearCache(userId)`: Clears IndexedDB and in-memory state.
 - `reset()`: Clears in-memory state only (used on sign-out).

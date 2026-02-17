@@ -19,8 +19,8 @@ export interface FitbitDataState {
     startFetch: (token: string, userId: string) => void;
     /** Abort the current fetch (keeps already-fetched data) */
     stopFetch: () => void;
-    /** Trigger a JSON file import */
-    importFromFile: (file: File) => void;
+    /** Load records from one or more JSON files, merging all into one dataset */
+    importFromFiles: (files: File[]) => Promise<void>;
     /** Download all records as a JSON file */
     exportToFile: () => void;
     /** Clear the IndexedDB cache for a user and reset in-memory state */
@@ -35,7 +35,7 @@ export interface FitbitDataState {
  * without knowing about raw API records, abort controllers, etc.
  */
 export function useFitbitData(): FitbitDataState {
-    const { records, loading, error, setRecords, appendRecords, importFromFile } = useSleepData();
+    const { records, loading, error, setRecords, appendRecords, importFromFiles } = useSleepData();
 
     const [fetching, setFetching] = useState(false);
     const [fetchProgress, setFetchProgress] = useState("");
@@ -160,7 +160,7 @@ export function useFitbitData(): FitbitDataState {
         fetchProgress,
         startFetch,
         stopFetch,
-        importFromFile,
+        importFromFiles,
         exportToFile,
         clearCache,
         reset,

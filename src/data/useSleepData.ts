@@ -11,8 +11,8 @@ interface SleepDataState {
     setRecords: (records: SleepRecord[]) => void;
     /** Append records to existing data (for progressive loading) */
     appendRecords: (newRecords: SleepRecord[]) => void;
-    /** Load records from a local JSON file (import) */
-    importFromFile: (file: File) => Promise<void>;
+    /** Load records from one or more JSON files, merging all into one dataset */
+    importFromFiles: (files: File[]) => Promise<void>;
 }
 
 /** Parse a v1.2 raw record into a SleepRecord */
@@ -77,17 +77,26 @@ export function useSleepData(): SleepDataState {
         setError(null);
     }, []);
 
-    const importFromFile = useCallback(async (file: File) => {
+    const importFromFiles = useCallback(async (files: File[]) => {
+        if (files.length === 0) return;
+
         try {
             setLoading(true);
-            const blobUrl = URL.createObjectURL(file);
-            try {
-                const recs = await loadLocalData(blobUrl);
-                setRecordsRaw(recs);
-                setError(null);
-            } finally {
-                URL.revokeObjectURL(blobUrl);
+            const allRecords: SleepRecord[] = [];
+
+            for (const file of files) {
+                if (!file) continue;
+                const blobUrl = URL.createObjectURL(file);
+                try {
+                    const recs = await loadLocalData(blobUrl);
+                    allRecords.push(...recs);
+                } finally {
+                    URL.revokeObjectURL(blobUrl);
+                }
             }
+
+            setRecordsRaw(sortAndDedup(allRecords));
+            setError(null);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Import failed");
         } finally {
@@ -95,7 +104,7 @@ export function useSleepData(): SleepDataState {
         }
     }, []);
 
-    return { records, loading, error, setRecords, appendRecords, importFromFile };
+    return { records, loading, error, setRecords, appendRecords, importFromFiles };
 }
 
 /**
