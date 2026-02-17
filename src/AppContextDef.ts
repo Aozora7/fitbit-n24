@@ -55,6 +55,8 @@ export interface AppState {
     setColorMode: (v: ColorMode) => void;
     tauHours: number;
     setTauHours: (v: number) => void;
+    sortDirection: "newest" | "oldest";
+    setSortDirection: (v: "newest" | "oldest") => void;
     rowHeight: number;
     setRowHeight: (v: number) => void;
     maxRowHeight: number;

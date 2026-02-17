@@ -41,8 +41,13 @@ function localMidnight(d: Date): Date {
  * clipped to the [0, 24) hour window of that day.
  *
  * @param extraDays - Number of empty forecast days to append after the data range
+ * @param sortDirection - "newest" for newest-first (default), "oldest" for oldest-first
  */
-export function buildActogramRows(records: SleepRecord[], extraDays = 0): ActogramRow[] {
+export function buildActogramRows(
+    records: SleepRecord[],
+    extraDays = 0,
+    sortDirection: "newest" | "oldest" = "newest"
+): ActogramRow[] {
     if (records.length === 0) return [];
 
     // Find date range
@@ -99,8 +104,8 @@ export function buildActogramRows(records: SleepRecord[], extraDays = 0): Actogr
         }
     }
 
-    // Newest first
-    rows.reverse();
+    // Apply sort direction
+    if (sortDirection === "newest") rows.reverse();
 
     return rows;
 }
@@ -110,8 +115,15 @@ export function buildActogramRows(records: SleepRecord[], extraDays = 0): Actogr
  * Each row spans `tau` hours, starting from the first record's midnight.
  * When tau=24 the result is equivalent to buildActogramRows (but row 0
  * starts at the first record's local midnight rather than calendar-day aligned).
+ *
+ * @param sortDirection - "newest" for newest-first (default), "oldest" for oldest-first
  */
-export function buildTauRows(records: SleepRecord[], tau: number, extraDays = 0): ActogramRow[] {
+export function buildTauRows(
+    records: SleepRecord[],
+    tau: number,
+    extraDays = 0,
+    sortDirection: "newest" | "oldest" = "newest"
+): ActogramRow[] {
     if (records.length === 0) return [];
 
     const tauMs = tau * 3_600_000;
@@ -163,8 +175,8 @@ export function buildTauRows(records: SleepRecord[], tau: number, extraDays = 0)
         }
     }
 
-    // Newest first
-    rows.reverse();
+    // Apply sort direction
+    if (sortDirection === "newest") rows.reverse();
 
     return rows;
 }

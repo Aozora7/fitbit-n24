@@ -135,6 +135,8 @@ export default function VisualizationControls() {
         setOverlaySleepWindow,
         circadianAlgorithmId,
         setCircadianAlgorithmId,
+        sortDirection,
+        setSortDirection,
     } = useAppContext();
 
     const algorithms = listAlgorithms();
@@ -246,6 +248,17 @@ export default function VisualizationControls() {
                                 {effectiveRowHeight}px
                             </span>
                         </label>
+                        <div className="flex items-center gap-2 text-sm text-gray-300">
+                            Order
+                            <SegmentedControl
+                                value={sortDirection}
+                                options={[
+                                    { key: "newest" as const, label: "Newest" },
+                                    { key: "oldest" as const, label: "Oldest" },
+                                ]}
+                                onChange={setSortDirection}
+                            />
+                        </div>
                         <RowWidthControl />
 
                         {/* ── Divider ── */}

@@ -27,6 +27,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const [showPeriodogram, setShowPeriodogram] = usePersistedState("viz.showPeriodogram", true);
     const [colorMode, setColorMode] = usePersistedState<ColorMode>("viz.colorMode", "stages");
     const [tauHours, setTauHours] = usePersistedState("viz.tauHours", 24);
+    const [sortDirection, setSortDirection] = usePersistedState<"newest" | "oldest">("viz.sortDirection", "newest");
 
     // Schedule overlay (persisted to localStorage)
     const [showSchedule, setShowSchedule] = usePersistedState("viz.showSchedule", false);
@@ -220,6 +221,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setColorMode,
             tauHours,
             setTauHours,
+            sortDirection,
+            setSortDirection,
             rowHeight,
             setRowHeight,
             maxRowHeight,
@@ -262,6 +265,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             showPeriodogram,
             colorMode,
             tauHours,
+            sortDirection,
             rowHeight,
             maxRowHeight,
             effectiveRowHeight,

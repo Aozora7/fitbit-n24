@@ -21,6 +21,7 @@ export default function Actogram() {
         overlayControlPoints,
         setOverlayControlPoints,
         manualOverlayDays,
+        sortDirection,
     } = useAppContext();
 
     const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
@@ -28,9 +29,9 @@ export default function Actogram() {
     const rows = useMemo(
         () =>
             tauHours !== 24
-                ? buildTauRows(filteredRecords, tauHours, effectiveForecastDays)
-                : buildActogramRows(filteredRecords, effectiveForecastDays),
-        [filteredRecords, effectiveForecastDays, tauHours]
+                ? buildTauRows(filteredRecords, tauHours, effectiveForecastDays, sortDirection)
+                : buildActogramRows(filteredRecords, effectiveForecastDays, sortDirection),
+        [filteredRecords, effectiveForecastDays, tauHours, sortDirection]
     );
 
     const circadianDays = showCircadian ? circadianAnalysis.days : [];
