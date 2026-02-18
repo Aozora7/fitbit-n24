@@ -4,7 +4,7 @@ import type { CSFConfig, SegmentResult } from "./types";
 import { DEFAULT_CONFIG, TAU_MIN, TAU_MAX } from "./types";
 import { prepareAnchors } from "./anchors";
 import { forwardPass, rtsSmoother, normalizeAngle, circularDiff } from "./filter";
-import { smoothOutputPhase, correctEdge } from "./smoothing";
+import { smoothOutputPhase, correctEdges } from "./smoothing";
 
 export function analyzeSegment(
     records: SleepRecord[],
@@ -32,7 +32,7 @@ export function analyzeSegment(
     const smoothedStates = rtsSmoother(forwardStates, config);
     const outputStates = smoothOutputPhase(smoothedStates, 5, 8);
     const lastDataLocalDay = Math.max(lastAnchor.dayNumber, lastRecordDay) - segFirstDay;
-    correctEdge(outputStates, anchors, segFirstDay, lastDataLocalDay, totalDays);
+    correctEdges(outputStates, anchors, segFirstDay, lastDataLocalDay, totalDays);
 
     const anchorByDay = new Map(anchors.map((a) => [a.dayNumber, a] as const));
 

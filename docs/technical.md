@@ -435,7 +435,7 @@ This handles 24-hour wraparound naturally while maintaining unbounded phase for 
 1. **Anchor preparation**: Continuous weight computation (same as regression algorithm)
 2. **Forward filter + RTS smoother**: Initialize from first anchor, predict/update forward, then RTS backward pass
 3. **Output smoothing**: Gaussian smoothing of phase and tau (σ=5 days, window=±8)
-4. **Edge correction + forecast re-anchoring**: Re-anchors last ~10 data-backed days using Gaussian-weighted local fit to nearby anchor clock hours (unwrapped clock-hour space, quadratic blend ramp). Forecast days are then linearly extrapolated from the corrected last data day using the anchor-based slope, replacing the forward-pass predictions.
+4. **Bidirectional edge correction + forecast re-anchoring**: Re-anchors first and last ~10 data-backed days using Gaussian-weighted local fit to nearby anchor clock hours (unwrapped clock-hour space, quadratic blend ramp). For the start edge, the correction addresses the forward filter's lack of prior observations; for the end edge, it corrects the RTS smoother's unsmoothed terminal state. Forecast days are then linearly extrapolated from the corrected last data day using the anchor-based slope, replacing the forward-pass predictions.
 5. **Output generation**: Convert smoothed states to CircadianDay[] with normalized phase
 
 #### Key advantages
@@ -500,21 +500,21 @@ All locations below are relative to `src/models/circadian/`.
 
 ### CSF algorithm parameters
 
-| Constant               | Value                                                                  | Location           |
-| ---------------------- | ---------------------------------------------------------------------- | ------------------ |
-| Process noise phase    | 0.08 h² (phase uncertainty growth per day)                             | `csf/types.ts`     |
-| Process noise tau      | 0.001 h²/day² (tau drift rate)                                         | `csf/types.ts`     |
-| Measurement kappa base | 0.35 (base Von Mises concentration)                                    | `csf/types.ts`     |
-| Tau prior              | 25.0 h (forward-biased for N24)                                        | `csf/types.ts`     |
-| Tau prior variance     | 0.1 h² (initial tau uncertainty)                                       | `csf/types.ts`     |
-| Tau clamp range        | [22.0, 27.0] h (physiological bounds)                                  | `csf/types.ts`     |
-| Anchor tiers           | Continuous weight (same as regression)                                 | `csf/anchors.ts`   |
-| Ambiguity resolution   | Snaps measurements to predicted phase's branch                         | `csf/filter.ts`    |
-| Output smoothing       | Phase/tau: σ=5 days, window=±8; Duration: σ=3 days, window=±5          | `csf/smoothing.ts` |
-| Edge correction        | Window=10 days, anchor σ=7 days, radius=±15 days, quadratic blend ramp | `csf/smoothing.ts` |
-| Weight scaling         | Linear (not squared) - reduces Tier A dominance                        | `csf/filter.ts`    |
-| Tau regularization     | Asymmetric: 4x stronger pull toward forward drift                      | `csf/filter.ts`    |
-| Max correction/step    | 4.0 h (clamps phase and tau innovation per update)                     | `csf/types.ts`     |
+| Constant               | Value                                                                                 | Location           |
+| ---------------------- | ------------------------------------------------------------------------------------- | ------------------ |
+| Process noise phase    | 0.08 h² (phase uncertainty growth per day)                                            | `csf/types.ts`     |
+| Process noise tau      | 0.001 h²/day² (tau drift rate)                                                        | `csf/types.ts`     |
+| Measurement kappa base | 0.35 (base Von Mises concentration)                                                   | `csf/types.ts`     |
+| Tau prior              | 25.0 h (forward-biased for N24)                                                       | `csf/types.ts`     |
+| Tau prior variance     | 0.1 h² (initial tau uncertainty)                                                      | `csf/types.ts`     |
+| Tau clamp range        | [22.0, 27.0] h (physiological bounds)                                                 | `csf/types.ts`     |
+| Anchor tiers           | Continuous weight (same as regression)                                                | `csf/anchors.ts`   |
+| Ambiguity resolution   | Snaps measurements to predicted phase's branch                                        | `csf/filter.ts`    |
+| Output smoothing       | Phase/tau: σ=5 days, window=±8; Duration: σ=3 days, window=±5                         | `csf/smoothing.ts` |
+| Edge correction        | Bidirectional, window=10 days, anchor σ=7 days, radius=±15 days, quadratic blend ramp | `csf/smoothing.ts` |
+| Weight scaling         | Linear (not squared) - reduces Tier A dominance                                       | `csf/filter.ts`    |
+| Tau regularization     | Asymmetric: 4x stronger pull toward forward drift                                     | `csf/filter.ts`    |
+| Max correction/step    | 4.0 h (clamps phase and tau innovation per update)                                    | `csf/types.ts`     |
 
 ### Phase consistency metric
 

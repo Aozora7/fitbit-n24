@@ -65,7 +65,7 @@ src/
         types.ts                   CSF-specific types: CSFAnalysis, CSFState, CSFConfig, algorithm constants
         filter.ts                  Von Mises filter: predict(), update(), forwardPass(), rtsSmoother()
         anchors.ts                 Anchor preparation with continuous weight
-        smoothing.ts               Output phase smoothing + edge correction (correctEdge, smoothOutputPhase)
+        smoothing.ts               Output phase smoothing + bidirectional edge correction (correctEdges, smoothOutputPhase)
         analyzeSegment.ts          Per-segment pipeline: anchors, filter, smoother, edge correction, output
         mergeSegments.ts           Merge CSF segments into single CSFAnalysis result
     calculateSleepScore.ts          Sleep quality scoring (regression model, 0-1 output)

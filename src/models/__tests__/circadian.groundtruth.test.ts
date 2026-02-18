@@ -501,6 +501,24 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                         expect(edgeMean).toBeLessThan(1.5);
                         expect(edgeP90).toBeLessThan(2.5);
                     }
+
+                    // Guards against algorithms having poor accuracy at the start of the dataset
+                    // (e.g. forward filter lacking prior observations).
+                    // Start edge can be noisier than end edge due to lack of backward smoothing
+                    // and potentially noisy early anchors.
+                    if (pairs.length >= EDGE_DAYS) {
+                        const startPairs = [...pairs].sort((a, b) => a.date.localeCompare(b.date)).slice(0, EDGE_DAYS);
+                        const startErrs = startPairs.map((p) => p.absError).sort((a, b) => a - b);
+                        const startMean = startErrs.reduce((a, b) => a + b, 0) / startErrs.length;
+                        const startP90 = startErrs[Math.floor(startErrs.length * 0.9)]!;
+                        if (VERBOSE) {
+                            console.log(
+                                `  first${EDGE_DAYS}d [${algorithm.id}]: mean=${startMean.toFixed(2)}h p90=${startP90.toFixed(2)}h`
+                            );
+                        }
+                        expect(startMean).toBeLessThan(2.5);
+                        expect(startP90).toBeLessThan(5.0);
+                    }
                     // TODO: Phase step bounds - currently all algorithms violate
                     // The night window duration changes cause start/end to shift
                     // even when midpoint is smooth. Need to fix algorithm output.

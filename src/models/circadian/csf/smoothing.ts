@@ -4,50 +4,44 @@ const EDGE_WINDOW = 10;
 const ANCHOR_HALF_WINDOW = 15;
 const ANCHOR_SIGMA = 7;
 
-/**
- * Correct the last EDGE_WINDOW data-backed days by blending RTS-smoothed
- * estimates with anchor-based estimates, then re-anchor forecast days using
- * linear extrapolation from the corrected last data day.
- *
- * The RTS smoother's terminal state is unsmoothed, causing the last several
- * data days to lag behind observations. Forecast days compound this error
- * because they use the uncorrected forward-pass phase and a tau that
- * underestimates actual drift.
- *
- * Works in unwrapped clock-hour space to avoid scale mismatch between
- * smoothedPhase (drift-accumulated) and anchor midpointHour (absolute hours).
- */
-export function correctEdge(
-    states: SmoothedState[],
-    anchors: CSFAnchor[],
-    segFirstDay: number,
-    lastDataLocalDay: number,
-    totalDays: number
-): void {
-    if (anchors.length < 3 || lastDataLocalDay < EDGE_WINDOW) return;
+type EdgeType = "start" | "end";
 
-    // Build unwrapped clock hours for anchors: take mod 24, then unwrap
-    // relative to first anchor so phase is continuous
-    const fitRadius = 30;
-    const recentAnchors = anchors.filter(
-        (a) => a.dayNumber >= segFirstDay + lastDataLocalDay - fitRadius && a.dayNumber <= segFirstDay + lastDataLocalDay
-    );
-    if (recentAnchors.length < 3) return;
+interface RegressionResult {
+    slope: number;
+    intercept: number;
+    unwrappedHours: { dayNumber: number; clockHour: number; weight: number }[];
+}
+
+function buildUnwrappedHours(anchors: CSFAnchor[], dayStart: number, dayEnd: number): RegressionResult | null {
+    const selected = anchors.filter((a) => a.dayNumber >= dayStart && a.dayNumber <= dayEnd);
+    if (selected.length < 3) return null;
+
+    const pivotIdx = selected.reduce((bestIdx, a, i, arr) => (a.weight > arr[bestIdx]!.weight ? i : bestIdx), 0);
+    const pivot = selected[pivotIdx]!;
 
     const unwrappedHours: { dayNumber: number; clockHour: number; weight: number }[] = [];
-    let prevHour = ((recentAnchors[0]!.midpointHour % 24) + 24) % 24;
-    unwrappedHours.push({ dayNumber: recentAnchors[0]!.dayNumber, clockHour: prevHour, weight: recentAnchors[0]!.weight });
 
-    for (let i = 1; i < recentAnchors.length; i++) {
-        let h = ((recentAnchors[i]!.midpointHour % 24) + 24) % 24;
-        // Unwrap: choose branch closest to previous (allow forward drift)
+    const pivotClockHour = ((pivot.midpointHour % 24) + 24) % 24;
+    unwrappedHours.push({ dayNumber: pivot.dayNumber, clockHour: pivotClockHour, weight: pivot.weight });
+
+    let prevHour = pivotClockHour;
+    for (let i = pivotIdx - 1; i >= 0; i--) {
+        let h = ((selected[i]!.midpointHour % 24) + 24) % 24;
         while (h - prevHour > 12) h -= 24;
         while (prevHour - h > 12) h += 24;
-        unwrappedHours.push({ dayNumber: recentAnchors[i]!.dayNumber, clockHour: h, weight: recentAnchors[i]!.weight });
+        unwrappedHours.unshift({ dayNumber: selected[i]!.dayNumber, clockHour: h, weight: selected[i]!.weight });
         prevHour = h;
     }
 
-    // Weighted linear regression on unwrapped clock hours vs dayNumber
+    prevHour = pivotClockHour;
+    for (let i = pivotIdx + 1; i < selected.length; i++) {
+        let h = ((selected[i]!.midpointHour % 24) + 24) % 24;
+        while (h - prevHour > 12) h -= 24;
+        while (prevHour - h > 12) h += 24;
+        unwrappedHours.push({ dayNumber: selected[i]!.dayNumber, clockHour: h, weight: selected[i]!.weight });
+        prevHour = h;
+    }
+
     let sumW = 0,
         sumWx = 0,
         sumWy = 0,
@@ -62,19 +56,46 @@ export function correctEdge(
         sumWxy += w * a.dayNumber * a.clockHour;
     }
     const denom = sumW * sumWxx - sumWx * sumWx;
-    if (Math.abs(denom) < 1e-10) return;
+    if (Math.abs(denom) < 1e-10) return null;
     const slope = (sumW * sumWxy - sumWx * sumWy) / denom;
     const intercept = (sumWy - slope * sumWx) / sumW;
 
-    // --- Phase 1: Correct data-backed edge days ---
-    const edgeStart = Math.max(0, lastDataLocalDay - EDGE_WINDOW);
-    for (let localD = edgeStart; localD <= Math.min(lastDataLocalDay, totalDays); localD++) {
+    return { slope, intercept, unwrappedHours };
+}
+
+function correctSingleEdge(
+    states: SmoothedState[],
+    anchors: CSFAnchor[],
+    segFirstDay: number,
+    edge: EdgeType,
+    edgeLocalDay: number,
+    totalDays: number
+): void {
+    const fitRadius = 30;
+
+    let dayStart: number, dayEnd: number;
+    if (edge === "end") {
+        dayStart = segFirstDay + edgeLocalDay - fitRadius;
+        dayEnd = segFirstDay + edgeLocalDay;
+    } else {
+        dayStart = segFirstDay;
+        dayEnd = segFirstDay + fitRadius;
+    }
+
+    const reg = buildUnwrappedHours(anchors, dayStart, dayEnd);
+    if (!reg) return;
+
+    const { slope, intercept, unwrappedHours } = reg;
+
+    const edgeEnd = edge === "end" ? Math.min(edgeLocalDay, totalDays) : EDGE_WINDOW - 1;
+    const edgeStart = edge === "end" ? Math.max(0, edgeLocalDay - EDGE_WINDOW) : 0;
+
+    for (let localD = edgeStart; localD <= edgeEnd; localD++) {
         const state = states[localD];
         if (!state) continue;
 
         const globalD = segFirstDay + localD;
 
-        // Gaussian-weighted mean of residuals from nearby anchors
         let wResSum = 0;
         let wSum = 0;
         for (const a of unwrappedHours) {
@@ -89,50 +110,123 @@ export function correctEdge(
 
         if (wSum < 0.5) continue;
 
-        // Target clock hour from anchor-based fit
         const targetClockHour = slope * globalD + intercept + wResSum / wSum;
-
-        // Bring smoothedPhase to the correct branch to match target clock hour
         const currentClockHour = ((state.smoothedPhase % 24) + 24) % 24;
         let correction = targetClockHour - currentClockHour;
-        // Normalize correction to [-12, 12]
         while (correction > 12) correction -= 24;
         while (correction < -12) correction += 24;
 
-        // Blend weight: 0 at edgeStart, 1 at lastDataLocalDay
-        const t = EDGE_WINDOW > 0 ? (localD - edgeStart) / EDGE_WINDOW : 1;
-        const blendWeight = t * t; // Quadratic ramp — stronger correction at the very end
+        let t: number;
+        if (edge === "end") {
+            t = EDGE_WINDOW > 0 ? (localD - edgeStart) / EDGE_WINDOW : 1;
+        } else {
+            t = EDGE_WINDOW > 0 ? 1 - localD / EDGE_WINDOW : 1;
+        }
+        const blendWeight = t * t;
 
         state.smoothedPhase += blendWeight * correction;
     }
 
-    // --- Phase 2: Re-anchor forecast days ---
-    // Extrapolate from the corrected last data day using the anchor-based slope
-    if (lastDataLocalDay < totalDays) {
-        const lastDataState = states[lastDataLocalDay];
+    if (edge === "end" && edgeLocalDay < totalDays) {
+        const lastDataState = states[edgeLocalDay];
         if (!lastDataState) return;
 
         const lastDataClockHour = ((lastDataState.smoothedPhase % 24) + 24) % 24;
 
-        for (let localD = lastDataLocalDay + 1; localD <= totalDays; localD++) {
+        for (let localD = edgeLocalDay + 1; localD <= totalDays; localD++) {
             const state = states[localD];
             if (!state) continue;
 
-            const dist = localD - lastDataLocalDay;
+            const dist = localD - edgeLocalDay;
             const forecastClockHour = lastDataClockHour + slope * dist;
 
-            // Set smoothedPhase to the correct branch
             const currentClockHour = ((state.smoothedPhase % 24) + 24) % 24;
             let correction = forecastClockHour - currentClockHour;
             while (correction > 12) correction -= 24;
             while (correction < -12) correction += 24;
 
             state.smoothedPhase += correction;
-            // Update tau to reflect the anchor-based drift rate
             state.smoothedTau = 24 + slope;
         }
     }
 }
+
+function correctStartEdgeFromInterior(states: SmoothedState[]): void {
+    // Use well-converged states from day 15-25 to estimate the phase trend,
+    // then extrapolate backward to correct the start edge.
+    const REF_START = 15;
+    const REF_END = 25;
+
+    if (states.length <= REF_END) return;
+
+    // Collect reference states with valid phase
+    const refPoints: { localD: number; phase: number }[] = [];
+    for (let localD = REF_START; localD <= REF_END && localD < states.length; localD++) {
+        const s = states[localD];
+        if (s) {
+            refPoints.push({ localD, phase: s.smoothedPhase });
+        }
+    }
+
+    if (refPoints.length < 5) return;
+
+    // Linear regression on phase vs localD
+    let n = 0,
+        sumX = 0,
+        sumY = 0,
+        sumXX = 0,
+        sumXY = 0;
+    for (const p of refPoints) {
+        n++;
+        sumX += p.localD;
+        sumY += p.phase;
+        sumXX += p.localD * p.localD;
+        sumXY += p.localD * p.phase;
+    }
+
+    const denom = n * sumXX - sumX * sumX;
+    if (Math.abs(denom) < 1e-10) return;
+
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+
+    // Extrapolate back to day 0 and apply correction
+    for (let localD = 0; localD < EDGE_WINDOW && localD < states.length; localD++) {
+        const state = states[localD];
+        if (!state) continue;
+
+        const targetPhase = slope * localD + intercept;
+        let correction = targetPhase - state.smoothedPhase;
+        // Don't make huge corrections - limit to 6h
+        correction = Math.max(-6, Math.min(6, correction));
+
+        // Quadratic blend: full correction at day 0, no correction at day EDGE_WINDOW
+        const t = EDGE_WINDOW > 0 ? 1 - localD / EDGE_WINDOW : 1;
+        const blendWeight = t * t;
+
+        state.smoothedPhase += blendWeight * correction;
+    }
+}
+
+export function correctEdges(
+    states: SmoothedState[],
+    anchors: CSFAnchor[],
+    segFirstDay: number,
+    lastDataLocalDay: number,
+    totalDays: number
+): void {
+    if (anchors.length < 3) return;
+    if (lastDataLocalDay < EDGE_WINDOW) return;
+
+    // Correct start edge using interior states (more reliable than early anchors)
+    correctStartEdgeFromInterior(states);
+
+    // Correct end edge using anchor-based regression
+    correctSingleEdge(states, anchors, segFirstDay, "end", lastDataLocalDay, totalDays);
+}
+
+/** @deprecated Use correctEdges instead */
+export const correctEdge = correctEdges;
 
 export function smoothOutputPhase(
     states: SmoothedState[],
