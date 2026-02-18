@@ -27,7 +27,7 @@ Fitbit API (v1.2)                        Local JSON file
             |       -> ActogramRow[]
             |       -> useActogramRenderer() (Canvas drawing)
             |
-            +---> analyzeWithAlgorithm()  (pluggable algorithms: regression, Kalman, CSF)
+            +---> analyzeWithAlgorithm()  (pluggable algorithms)
             |       -> CircadianAnalysis { days: CircadianDay[], globalTau, ... }
             |       -> useActogramRenderer() (purple/amber overlay band with variable alpha)
             |
@@ -373,10 +373,8 @@ inconsistency = |actual_change - expected_drift|
 
 This penalizes algorithms that either:
 
-- **Overfit** to individual sleep records (CSF was 0.85-2.01h p90 before tuning)
-- **Over-smooth** and fail to track real N24 drift (Kalman was 0.03-0.04h p90 before tuning)
-
-After tuning, both algorithms achieve phase consistency comparable to regression (0.49-0.90h p90).
+- **Overfit** to individual sleep records
+- **Over-smooth** and fail to track real N24 drift
 
 ## Sleep score regression weights
 
@@ -442,6 +440,19 @@ When manual overlay control points exist, the interpolated overlay renders in cy
 
 The `test-data/` directory (gitignored, independent git repo) contains subdirectories with `sleep.json` + `overlay.json` pairs. `circadian.groundtruth.test.ts` iterates all pairs, runs `analyzeWithAlgorithm()` for each registered algorithm on each dataset, and scores the algorithm's output against the manual overlay using circular midpoint distance (mean, median, p90). Tests skip gracefully when `test-data/` is missing.
 
+**Output modes** (via `GT_MODE` env var):
+
+- `compact` (default): Tab-separated `GTRESULT` lines for quick scanning
+- `verbose`: Full diagnostic output with window breakdowns and streak analysis
+- `json`: JSON output for programmatic use (one object per algorithm+dataset)
+- `compare`: Compare current results against stored baselines in `test-data/baselines/`
+
+**Baseline management**:
+
+- `UPDATE_BASELINE=1`: Save current results to `test-data/baselines/<dataset>.<algorithm>.json`
+- Baselines store `GroundTruthStats` with recorded timestamp for regression tracking
+- Compare mode shows delta table with improvement markers (✓/✗)
+
 ## PNG export
 
 `exportActogramPNG()` in `utils/exportPNG.ts` composites a self-contained PNG image from the live canvases. It creates an offscreen canvas at the actogram's native DPR resolution, draws a header (title + stats: record count, tau, daily drift, R², day span), copies the actogram canvas via `drawImage`, optionally copies the periodogram canvas (when visible), and appends a color legend (stage colors or quality gradient depending on current color mode). The result is downloaded as `fitbit-actogram-YYYY-MM-DD.png` via an anchor-click pattern.
@@ -465,18 +476,6 @@ The CLI reads a JSON file with `fs.readFileSync`, parses it with `parseSleepData
 
 A separate `tsconfig.cli.json` provides Node.js-compatible settings (`module: "NodeNext"`, `moduleResolution: "NodeNext"`) for type-checking CLI code. The main `tsconfig.json` and `npm run build` remain unchanged (browser-only).
 
-## Test coverage
-
-| Test file                                 | Category    | Purpose                                                                                                                                                                                                                                    |
-| ----------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `circadian.integration.test.ts`           | correctness | Core algorithm correctness: tau detection, gaps, segments, DSPD→N24 transitions (runs on all algorithms)                                                                                                                                   |
-| `circadian.scoring.test.ts`               | mixed       | Benchmarks (tau sweep, phase accuracy, noise/gap/outlier degradation, forecast, cumulative shift) + correctness (confidence calibration, overlay smoothness, drift limits) (runs on all algorithms; periodogram benchmark regression-only) |
-| `circadian.regimechange.test.ts`          | correctness | Bidirectional regime changes, ultra-short periods (τ < 24), backward bridge validation (runs on all algorithms)                                                                                                                            |
-| `regression/regression.internals.test.ts` | correctness | Unit tests for regression internal helpers (classifyAnchor, regression, unwrapping)                                                                                                                                                        |
-| `circadian.groundtruth.test.ts`           | correctness | Ground-truth overlay scoring (algorithm vs manually curated overlays, skips if no data, runs on all algorithms)                                                                                                                            |
-| `overlayPath.test.ts`                     | correctness | Overlay interpolation: linear interp, phase wrapping, extrapolation                                                                                                                                                                        |
-| `lombScargle.test.ts`                     | correctness | Periodogram computation tests                                                                                                                                                                                                              |
-
 ### Test visualization
 
 Set `VIZ=1` to generate self-contained HTML actograms in `test-output/` during test runs. Each HTML file shows sleep blocks (blue), algorithm overlay (purple/amber), and ground truth midpoints (green dots) on a dark-background canvas. Hover for per-day tooltip with localTau, confidence, and phase error. Files are named `{test}_{scenario}_{algorithm}.html`.
@@ -494,7 +493,7 @@ Benchmark output format (tab-separated, greppable):
 BENCHMARK	label	metric=value	target<threshold	PASS|REGRESSED
 ```
 
-Ground truth compact output (default, set `VERBOSE=1` for full diagnostics):
+Ground truth compact output:
 
 ```
 GTRESULT	dataset-name	n=245	mean=1.23h	median=0.98h	p90=2.45h	bias=+0.34h	drift-agree=82%	tau-delta=+1.2min	streaks=2	max-streak=8d	penalty=0.15
@@ -512,7 +511,3 @@ All tests enforce `localDrift` in [-1.5, +3.0] h/day via `assertHardDriftLimits(
 - **Per-day penalty**: linear interpolation (0 at zone inner edge, 1.0 at hard limit)
 - **Consecutive multiplier**: day penalty × streak length for superlinear growth (3 consecutive days at penalty 0.5 each → 0.5×1 + 0.5×2 + 0.5×3 = 3.0)
 - Reported as `DRIFT_PENALTY` lines in benchmark tests and `penalty=` field in ground truth compact output
-
-## Tailwind CSS v4
-
-Tailwind is imported via `@import "tailwindcss"` in `index.css` and processed by the `@tailwindcss/vite` plugin. No `tailwind.config.js` is needed in v4 — it auto-detects content sources. All component styling uses Tailwind utility classes directly in JSX, with custom properties in `index.css` for the body background and font.

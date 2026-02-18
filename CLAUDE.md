@@ -14,8 +14,10 @@ npm run split-gaps -- <file.json> # Split file with gaps into separate segment f
 npm run compare -- <file.json> [algorithmIds...] # Compare algorithms on the same data
 npm run test        # Run all tests once (vitest run)
 npm run test:watch  # Watch mode for TDD (vitest)
-VERBOSE=1 npx vitest run circadian.groundtruth  # Full diagnostic output for ground truth tests
-VIZ=1 npm run test    # Generate HTML actogram visualizations in test-output/
+GT_MODE=verbose npm run test -- circadian.groundtruth  # Full diagnostic output for ground truth tests
+GT_MODE=json npm run test -- circadian.groundtruth    # JSON output for programmatic use
+GT_MODE=compare npm run test -- circadian.groundtruth # Compare current vs recorded baselines
+UPDATE_BASELINE=1 npm run test -- circadian.groundtruth # Save current results as baselines
 ```
 
 ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `npx eslint <file>` or `npx prettier --check <file>`

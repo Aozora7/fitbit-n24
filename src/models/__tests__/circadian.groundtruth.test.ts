@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { listAlgorithms } from "../circadian";
-import { hasTestData, listGroundTruthDatasets } from "./fixtures/loadGroundTruth";
+import { hasTestData, listGroundTruthDatasets, loadBaseline, saveBaseline } from "./fixtures/loadGroundTruth";
 import { assertHardDriftLimits, computeDriftPenalty } from "./fixtures/driftPenalty";
 
-const VERBOSE = process.env.VERBOSE === "1";
+type GtMode = "compact" | "verbose" | "json" | "compare";
+const GT_MODE: GtMode = (process.env.GT_MODE as GtMode) || "compact";
+const UPDATE_BASELINE = process.env.UPDATE_BASELINE === "1";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -220,6 +222,86 @@ function logVerbose(s: GroundTruthStats): void {
         `  │ Phase steps:  min=${s.phaseStepMin.toFixed(2)}h  max=${s.phaseStepMax.toFixed(2)}h  violations=${s.phaseStepViolations}`
     );
     console.log(`  └────────────────────────────────────────`);
+}
+
+function logJson(s: GroundTruthStats): void {
+    const output = {
+        algorithmId: s.algorithmId,
+        dataset: s.name,
+        recordedAt: new Date().toISOString(),
+        stats: s,
+    };
+    console.log(JSON.stringify(output));
+}
+
+interface ComparisonMetricDef {
+    key: string;
+    label: string;
+    unit: string;
+}
+
+interface ComparisonMetric extends ComparisonMetricDef {
+    baseline: number;
+    current: number;
+    delta: number;
+    improved: boolean;
+}
+
+function compareWithBaseline(s: GroundTruthStats, baseline: Record<string, unknown>): void {
+    const metrics: ComparisonMetricDef[] = [
+        { key: "mean", label: "Mean error", unit: "h" },
+        { key: "median", label: "Median error", unit: "h" },
+        { key: "p90", label: "P90 error", unit: "h" },
+        { key: "signedMean", label: "Signed bias", unit: "h" },
+        { key: "tauDeltaMin", label: "Tau delta", unit: "min" },
+        { key: "maxTauDeltaWindow", label: "Max win tau", unit: "min" },
+        { key: "streakCount", label: "Streaks", unit: "" },
+        { key: "severeStreakCount", label: "Severe streaks", unit: "" },
+        { key: "driftPenalty", label: "Drift penalty", unit: "" },
+        { key: "phaseConsistencyP90", label: "Phase cons P90", unit: "h" },
+        { key: "phaseStepViolations", label: "Step violations", unit: "" },
+    ];
+
+    const rows: ComparisonMetric[] = metrics
+        .map((m) => {
+            const baselineVal = baseline[m.key];
+            const currentVal = s[m.key as keyof GroundTruthStats];
+            if (typeof baselineVal !== "number" || typeof currentVal !== "number") return null;
+            const delta = currentVal - baselineVal;
+            const lowerIsBetter = [
+                "mean",
+                "median",
+                "p90",
+                "tauDeltaMin",
+                "maxTauDeltaWindow",
+                "streakCount",
+                "severeStreakCount",
+                "driftPenalty",
+                "phaseConsistencyP90",
+                "phaseStepViolations",
+            ].includes(m.key);
+            return {
+                ...m,
+                baseline: baselineVal,
+                current: currentVal,
+                delta,
+                improved: lowerIsBetter ? delta < 0 : delta > 0,
+            };
+        })
+        .filter((r): r is ComparisonMetric => r !== null);
+
+    console.log(`\n[GTCOMPARE] ${s.name} / ${s.algorithmId}`);
+    console.log("─".repeat(70));
+    console.log(`${"Metric".padEnd(18)} ${"Baseline".padStart(10)} ${"Current".padStart(10)} ${"Delta".padStart(10)}`);
+    console.log("─".repeat(70));
+    for (const r of rows) {
+        const deltaStr = (r.delta >= 0 ? "+" : "") + r.delta.toFixed(2) + r.unit;
+        const marker = r.improved ? "✓" : "✗";
+        console.log(
+            `${r.label.padEnd(18)} ${r.baseline.toFixed(2).padStart(10)} ${r.current.toFixed(2).padStart(10)} ${deltaStr.padStart(10)} ${marker}`
+        );
+    }
+    console.log("─".repeat(70));
 }
 
 // ── Test suite ───────────────────────────────────────────────────────
@@ -469,31 +551,45 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                         gtDays: gtSorted.length,
                     };
 
-                    if (VERBOSE) {
-                        logVerbose(stats);
-                    } else {
-                        logCompact(stats);
+                    const EDGE_DAYS = 7;
+                    const baseline = loadBaseline(dataset.name, algorithm.id);
+
+                    if (UPDATE_BASELINE) {
+                        saveBaseline(dataset.name, algorithm.id, stats as unknown as Record<string, unknown>);
+                        console.log(`[GTUPDATE] Saved baseline: ${dataset.name}.${algorithm.id}.json`);
                     }
 
-                    // Loose thresholds — tighten as algorithm improves
+                    switch (GT_MODE) {
+                        case "verbose":
+                            logVerbose(stats);
+                            break;
+                        case "json":
+                            logJson(stats);
+                            break;
+                        case "compare":
+                            if (baseline) {
+                                compareWithBaseline(stats, baseline.stats);
+                            } else {
+                                logCompact(stats);
+                                console.log(`[GTWARN] No baseline found for ${dataset.name}.${algorithm.id}`);
+                            }
+                            break;
+                        default:
+                            logCompact(stats);
+                    }
+
                     expect(mean).toBeLessThan(2.5);
                     expect(p90).toBeLessThan(6.0);
                     expect(maxTauDeltaWindow).toBeLessThan(50);
                     expect(severeStreakCount).toBeLessThan(10);
                     expect(penalty.totalPenalty).toBeLessThan(500);
 
-                    // ── Edge accuracy ──────────────────────
-                    // Guards against algorithms lagging at the end of the dataset
-                    // (e.g. RTS smoother's unsmoothed terminal state bias).
-                    // Thresholds are the tightest both CSF and regression can pass
-                    // across all ground truth datasets.
-                    const EDGE_DAYS = 7;
                     if (pairs.length >= EDGE_DAYS) {
                         const edgePairs = [...pairs].sort((a, b) => a.date.localeCompare(b.date)).slice(-EDGE_DAYS);
                         const edgeErrs = edgePairs.map((p) => p.absError).sort((a, b) => a - b);
                         const edgeMean = edgeErrs.reduce((a, b) => a + b, 0) / edgeErrs.length;
                         const edgeP90 = edgeErrs[Math.floor(edgeErrs.length * 0.9)]!;
-                        if (VERBOSE) {
+                        if (GT_MODE === "verbose") {
                             console.log(
                                 `  last${EDGE_DAYS}d [${algorithm.id}]: mean=${edgeMean.toFixed(2)}h p90=${edgeP90.toFixed(2)}h`
                             );
@@ -502,16 +598,12 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                         expect(edgeP90).toBeLessThan(2.5);
                     }
 
-                    // Guards against algorithms having poor accuracy at the start of the dataset
-                    // (e.g. forward filter lacking prior observations).
-                    // Start edge can be noisier than end edge due to lack of backward smoothing
-                    // and potentially noisy early anchors.
                     if (pairs.length >= EDGE_DAYS) {
                         const startPairs = [...pairs].sort((a, b) => a.date.localeCompare(b.date)).slice(0, EDGE_DAYS);
                         const startErrs = startPairs.map((p) => p.absError).sort((a, b) => a - b);
                         const startMean = startErrs.reduce((a, b) => a + b, 0) / startErrs.length;
                         const startP90 = startErrs[Math.floor(startErrs.length * 0.9)]!;
-                        if (VERBOSE) {
+                        if (GT_MODE === "verbose") {
                             console.log(
                                 `  first${EDGE_DAYS}d [${algorithm.id}]: mean=${startMean.toFixed(2)}h p90=${startP90.toFixed(2)}h`
                             );
