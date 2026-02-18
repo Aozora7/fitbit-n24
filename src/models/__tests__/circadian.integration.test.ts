@@ -1,11 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { listAlgorithms, analyzeWithAlgorithm } from "../circadian";
-import type { RegressionAnalysis } from "../circadian";
-import { generateSyntheticRecords } from "./fixtures/synthetic";
-import { hasRealData, loadRealData } from "./fixtures/loadRealData";
-import { maybeSaveViz } from "./fixtures/visualize";
 
-const AOZORA_FILE = "Aozora_2026-02-13.json";
+import { generateSyntheticRecords } from "./fixtures/synthetic";
+import { maybeSaveViz } from "./fixtures/visualize";
 
 const algorithms = listAlgorithms();
 

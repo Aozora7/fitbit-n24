@@ -41,8 +41,6 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/circadian/index.ts`                  | Public API: `analyzeWithAlgorithm()`, `DEFAULT_ALGORITHM_ID`, type exports            |
 | `src/models/circadian/types.ts`                  | Base types: `CircadianAnalysis`, `CircadianDay`, `GAP_THRESHOLD_DAYS`                 |
 | `src/models/circadian/registry.ts`               | Algorithm registry: `registerAlgorithm()`, `getAlgorithm()`, `listAlgorithms()`       |
-| `src/models/circadian/regression/index.ts`       | Weighted regression algorithm (default) — see module header for file structure        |
-| `src/models/circadian/kalman/index.ts`           | Kalman filter algorithm — see module header for file structure                        |
 | `src/models/circadian/csf/index.ts`              | Circular state-space filter algorithm — see module header for file structure          |
 | `src/models/periodogram.ts`                      | Phase coherence periodogram (windowed weighted Rayleigh test)                         |
 | `src/models/actogramData.ts`                     | Row building (`buildActogramRows` for calendar, `buildTauRows` for custom period)     |
@@ -62,7 +60,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
     - `docs/structure.md` — file listing with per-file descriptions
 - **All timestamps use local time**, not UTC — day boundaries use `Date.setHours(0,0,0,0)` and manual `getFullYear()/getMonth()/getDate()` formatting
 - **Viz settings persist** via `usePersistedState` hook (localStorage keys prefixed `viz.`, including `viz.circadianModel`)
-- **Algorithm registry** — `CircadianAlgorithm` interface defines `id`, `name`, `description`, `analyze()`; algorithms register via `registerAlgorithm()` at module load; `CircadianAnalysis` is the base result type, `RegressionAnalysis` extends it with algorithm-specific fields (`anchors`, `anchorCount`, etc.)
+- **Algorithm registry** — `CircadianAlgorithm` interface defines `id`, `name`, `description`, `analyze()`; algorithms register via `registerAlgorithm()` at module load
 - **IndexedDB caching** — raw API records cached per-user; incremental fetch only retrieves newer records
 - **`RawSleepRecordV12`** is the raw API type; **`SleepRecord`** is the parsed internal type with `Date` objects and computed `sleepScore`
 - **Row ordering** — `buildActogramRows` returns rows newest-first by default (pass `sortDirection: "oldest"` for oldest-first); double-plot uses next-day data (row `i-1` for newest-first, row `i+1` for oldest-first)
@@ -75,6 +73,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Test categories** — `correctness:` tests hard-fail on violations; `benchmark:` tests log `BENCHMARK` lines with soft targets but only hard-fail on catastrophic guards
 - **Hard drift limits** — `localDrift` must be in [-1.5, +3.0] h/day (i.e. `localTau` in [22.5, 27.0]); enforced by `assertHardDriftLimits()` across all tests
 - **This is a TypeScript ESM project.** — Do not use CommonJS patterns (require, module.exports). Hook scripts and config files that need CommonJS must use .cjs extension.
+- **Do not use names or contents of test datasets in documentation or tests.**
 
 ## Documentation
 

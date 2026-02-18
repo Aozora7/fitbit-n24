@@ -3,7 +3,7 @@
 ```
 cli/
   analyze.ts                        CLI entry point: read JSON file, run circadian analysis, print stats (optional algorithmId arg)
-  analyze_period.ts                 Diagnostic script for analyzing a specific date range (optional algorithmId arg, regression-specific diagnostics when using regression-v1)
+  analyze_period.ts                 Diagnostic script for analyzing a specific date range
   compare.ts                        Compare multiple circadian algorithms on the same dataset
 
 src/
@@ -41,25 +41,6 @@ src/
       types.ts                     Base types: CircadianAnalysis, CircadianDay, GAP_THRESHOLD_DAYS (algorithm-independent)
       registry.ts                  Algorithm registry: registerAlgorithm(), getAlgorithm(), listAlgorithms()
       segments.ts                  Segment splitting for data gaps (splitIntoSegments)
-      regression/
-        index.ts                   Algorithm entry point: analyzeCircadian(), _internals barrel for testing
-        types.ts                   Regression-specific types: RegressionAnalysis, Anchor, AnchorPoint, constants
-        __tests__/
-          regression.internals.test.ts  Unit tests for regression internal helpers (computeAnchorWeight, regression, unwrapping)
-        regression.ts              Weighted/robust regression (IRLS+Tukey), Gaussian kernel, sliding window
-        unwrap.ts                  Seed-based phase unwrapping with regression/pairwise branch resolution
-        anchors.ts                 Anchor weight computation, midpoint computation
-        smoothing.ts               3-pass post-hoc overlay smoothing + forecast re-anchoring
-        analyzeSegment.ts          Per-segment analysis pipeline
-        mergeSegments.ts           Merge independently-analyzed segments into single result
-      kalman/
-        index.ts                   Kalman filter algorithm entry point + _internals barrel for testing
-        types.ts                   Kalman-specific types: KalmanAnalysis, State, Cov, algorithm constants
-        filter.ts                  Forward Kalman filter: predict(), update(), gate(), resolveAmbiguity()
-        smoother.ts                Rauch-Tung-Striebel backward smoother (single optimal backward pass)
-        observations.ts            Sleep record → per-day observation extraction with adaptive measurement noise
-        analyzeSegment.ts          Per-segment pipeline: initialization, forward filter, RTS smoother, output
-        mergeSegments.ts           Merge Kalman segments into single KalmanAnalysis result
       csf/
         index.ts                   CSF algorithm entry point + _internals barrel for testing
         types.ts                   CSF-specific types: CSFAnalysis, CSFState, CSFConfig, algorithm constants
@@ -77,8 +58,8 @@ src/
         loadRealData.ts             Generic real data loader: `loadRealData(fileName)` loads from test-data/, `hasRealData(fileName)` checks existence
         loadGroundTruth.ts          Ground-truth dataset loader (iterates test-data/ subdirs, loads sleep+overlay pairs)
         driftPenalty.ts             Hard drift limit assertions + penalty scoring for prolonged extreme drift
-      circadian.integration.test.ts Full pipeline tests on all algorithms (synthetic + real data regression-specific)
-      circadian.scoring.test.ts   Benchmark + correctness tests on all algorithms (tau sweep, phase accuracy, noise/gap/outlier degradation, overlay smoothness, drift limits; periodogram benchmark regression-only)
+      circadian.integration.test.ts Full pipeline tests on all algorithms (synthetic)
+      circadian.scoring.test.ts   Benchmark + correctness tests on all algorithms (tau sweep, phase accuracy, noise/gap/outlier degradation, overlay smoothness, drift limits)
       circadian.regimechange.test.ts Regime change tests on all algorithms (entrained↔N24 transitions, drift rate validation)
       circadian.groundtruth.test.ts Ground-truth overlay scoring on all algorithms (compact GTRESULT format by default, VERBOSE=1 for full diagnostics)
       overlayPath.test.ts           Overlay interpolation tests (linear interp, phase wrapping, extrapolation)

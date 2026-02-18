@@ -239,104 +239,6 @@ Algorithms implement the `CircadianAlgorithm` interface with `id`, `name`, `desc
 
 The base `CircadianAnalysis` type contains only common fields (`globalTau`, `days`, etc.). Algorithm-specific data (e.g., `anchors`, `anchorCount` for the regression algorithm) is in `RegressionAnalysis` which extends the base type.
 
-### Weighted Regression Algorithm: Step 1: Quality scoring
-
-Each sleep record receives a quality score (0-1) via `calculateSleepScore()` in `models/calculateSleepScore.ts`. This uses a regression model with weights fitted to a dataset of Fitbit records with known quality scores:
-
-```
-score = 66.607 + 9.071 * durationScore + 0.111 * deepPlusRemMinutes - 102.527 * wakePct
-```
-
-Where:
-
-- **durationScore** (0-1): Piecewise function of `minutesAsleep/60` — ramps 0→0.5 for 0-4h, 0.5→1.0 for 4-7h, plateau at 7-9h, declines to 0 for 9-12h
-- **deepPlusRemMinutes**: `deep + rem` minutes from stage summary. For classic records without stage data, estimated as 39% of `minutesAsleep`
-- **wakePct**: `wake minutes / timeInBed` (or `minutesAwake / timeInBed` for classic records)
-
-The raw score is clamped to 0-100, rounded, then divided by 100 to produce a 0-1 value stored as `sleepScore` on each `SleepRecord`.
-
-### Step 2: Continuous anchor weight computation
-
-Each sleep record receives a continuous weight based on duration and quality score:
-
-```
-weight = quality * durFactor
-durFactor = min(1, max(0, (durationHours - 4) / 3))
-```
-
-Records with weight < 0.05 are excluded entirely (catches fragmented/low-quality sleep). The weight formula:
-
-- Increases linearly with quality (higher sleepScore → higher weight)
-- Increases linearly with duration from 4h to 7h (plateaus at 7h+)
-- Naps (`isMainSleep = false`) receive an additional 0.15× weight multiplier
-
-This replaces the previous 3-tier (A/B/C) classification system with a smooth function, eliminating discontinuities at tier boundaries while achieving similar behavior: high-quality 7h+ sleeps get weight near 1.0, moderate 5-6h sleeps get weight 0.2-0.7, and low-quality or short sleeps get very low weight or are excluded.
-
-When multiple qualifying records exist for the same `dateOfSleep`, only the one with the highest weight is kept.
-
-### Step 3: Midpoint calculation and seed-based phase unwrapping
-
-For each anchor, the sleep midpoint is computed as fractional hours from the first record's midnight (absolute time), paired with a day index for regression.
-
-The midpoint sequence is unwrapped using a seed-based algorithm to handle 24-hour wraparound. Sequential pairwise unwrapping from the first anchor is vulnerable to cascading errors when early data is noisy (e.g. scattered naps, polyphasic sleep, manual logs) — a noisy start can be misinterpreted as 24h wraps, producing a catastrophically wrong trajectory. The seed-based approach avoids this by finding a high-confidence region first.
-
-1. **Seed region selection** (`findSeedRegion`): A 42-day window is slid across the timeline (~30 evaluation points). At each position, anchors are gathered, locally pairwise-unwrapped on a copy, and fit with weighted linear regression. Each window is scored on a weighted combination of: residual MAD (35%), anchor density (25%), average anchor weight (25%), and slope plausibility (15%). Slope plausibility penalizes extreme slopes outside the -0.5 to +3.0 h/day range. The highest-scoring window becomes the seed. For short datasets (<42 days), the entire anchor array is used as the seed.
-
-2. **Seed unwrapping** (Phase A): The seed region is pairwise-unwrapped. This is safe because the seed was selected for internal consistency.
-
-3. **Forward expansion** (Phase B): Starting from the seed's end, each subsequent anchor is snapped to within 12h of a prediction derived from already-unwrapped neighbors within 30 days. Neighbors are Gaussian distance-weighted (σ=14 days). With 2+ neighbors, a weighted linear regression predicts the midpoint. With 1 neighbor, a simple 12h snap is used. With 0 neighbors (very sparse data), the anchor is left as-is. **Branch conflict resolution**: Both regression-based and nearest-neighbor (pairwise) branch predictions are computed. When they agree, the regression is used. When they disagree and the anchor is clearly close to its nearest neighbor (<6h, ≤7 days away), the pairwise prediction is preferred — this prevents regression overextrapolation from steep pre-fragmentation data placing anchors on the wrong 24h branch.
-
-4. **Backward expansion** (Phase C): Same as forward expansion but proceeding from the seed's start toward the beginning of the data. This allows noisy early data to be constrained by the clean seed region rather than propagating errors forward.
-
-### Step 4: Outlier rejection
-
-A preliminary global fit is computed across all anchors. Records with residuals exceeding **8 hours** are flagged as outliers. These are removed only if they constitute less than 15% of total anchors, then the remaining anchors are re-unwrapped using the same seed-based algorithm.
-
-### Step 5: Sliding-window robust regression
-
-For each calendar day, a sliding window is evaluated:
-
-1. Collect all anchors within **±21 days** (42-day window)
-2. Apply Gaussian weights (sigma = **14 days**) multiplied by each anchor's tier weight
-3. Fit **robust weighted regression** using IRLS (iteratively reweighted least squares) with Tukey bisquare M-estimation (tuning constant = 4.685, up to 5 iterations). This downweights outliers that survived Step 4.
-4. Extract local tau = `24 + slope`, along with quality metrics (anchor count, mean quality, residual MAD, average A-tier sleep duration)
-5. **Slope regularization**: The local slope is blended toward a **regional** fit slope (±60-day window) based on window strength. `slopeConf = min(1, pointsUsed/expected) × (1 - min(1, residualMAD/4))`. When the local and regional slopes differ by >0.3 h/day AND the local fit has good quality (residual MAD < 2.0h), `slopeConf` is boosted to prevent blending across regime boundaries (e.g., entrained↔N24 transitions). The MAD gate prevents fragmented sleep from triggering false regime changes. The reported `localTau` uses `regularizedSlope = slopeConf × localSlope + (1 - slopeConf) × regionalSlope`, clamped to >= 0 (the circadian clock doesn't run backward). Using a regional rather than global fallback prevents distant historical data (with potentially different tau) from pulling local estimates. The 120-day regional window (reduced from 180 days) improves responsiveness to regime changes such as DSPD-to-N24 transitions. If the regional slope is implausible (outside -0.5 to +2.0 h/day, e.g. due to unwrapping gaps), the global fit slope is used instead. The predicted midpoint uses centroid-anchored extrapolation: the regression's prediction at the weighted mean x of its anchors, then extrapolated to the target day at the regularized slope. For symmetric windows this closely matches the raw regression; for asymmetric windows (fragmented periods) this constrains the overlay to advance at the regularized rate.
-6. Compute a composite confidence score: `0.4 * density + 0.3 * quality + 0.3 * (1 - residualSpread)`
-
-If fewer than **6 anchors** fall in the window, it expands progressively: first to ±32 days, then to ±60 days (120-day window).
-
-### Step 6: Per-day projection
-
-For each calendar day, the local regression predicts a midpoint. A window centered on this midpoint defines the estimated circadian night. The window duration is based on the average sleep duration of A-tier anchors in the local window, falling back to 8 hours if no A-tier data is available.
-
-The circadian overlay uses the day's confidence score to modulate alpha: `0.1 + confidenceScore * 0.25`.
-
-### Step 7: Jump-targeted overlay smoothing
-
-After all per-day predictions are computed, a two-pass post-hoc smoothing corrects artifacts from the sliding window approach.
-
-**Pass 1 — Anchor-based smoothing** (for low-confidence regions):
-
-1. Flag days where `slopeConf < 0.4` (fragmented/uncertain windows), plus ±5 day margins for smooth transitions.
-2. For flagged days with sufficient nearby anchors (cumulative weight > 0.5), compute a smoothed midpoint from actual anchor sleep positions: residuals from global trend, Gaussian-weighted by distance (sigma=3) and anchor weight over ±7 days.
-3. Blend the anchor-smoothed result with the raw prediction using distance-to-core fading: core days get full anchor weight, margin days fade linearly to zero.
-4. This pulls the overlay toward where sleep actually occurs during fragmented periods, capturing local slope changes that the global trend misses.
-
-**Pass 2 — Iterative jump smoothing** (for remaining discontinuities):
-
-1. **Pairwise unwrap** modified predictions to remove 24h steps.
-2. **Jump detection**: Flag days with circular jump > **2h** to neighbors, plus ±5 day margins.
-3. **Prediction-based residual smoothing**: Gaussian-weighted average of neighboring predictions' residuals from global trend (`sigma=3`, ±7 days).
-4. Iterate up to 3 times until no jumps exceed the threshold.
-
-**Pass 3 — Forward-bridge backward-moving segments** (for sleep disruptions):
-
-1. Compute normalized overlay midpoints and circular day-to-day deltas.
-2. For each day, compute the expected drift from the average of neighboring `localDrift` values, clamped to >= 0 (the circadian clock doesn't run backward). Flag days where the daily shift deviates **0.5h+** backward from this expected drift. Only consider days with sufficient confidence (`MIN_CONFIDENCE = 0.3`).
-3. Find contiguous runs of **3+ backward days**.
-4. For qualifying runs, replace overlay with **forward** circular interpolation between the entry point (last non-backward day before the run) and exit point (first non-backward day after). Interpolation always goes in the positive (forward) direction. Sanity check: skip if the interpolation rate exceeds 3h/day.
-5. This ensures the overlay always advances in the circadian drift direction through disrupted sleep periods, where off-rhythm anchors would otherwise pull the regression backward.
-
 ### Segment isolation at data gaps
 
 When the dataset contains data gaps >14 days between consecutive records, `analyzeCircadian` splits the records into independent segments at each gap boundary using `splitIntoSegments`. Each segment is analyzed with the full pipeline (`analyzeSegment`) — anchor classification, unwrapping, outlier detection, sliding-window regression, and smoothing all operate only on the segment's own data. This prevents pre-gap data from influencing post-gap estimates (e.g., a 300-day tau=24.2 segment won't pull the local tau of a post-gap tau=25.0 segment).
@@ -359,10 +261,6 @@ When forecast days are requested, the regression from the last data day (the "ed
 - `medianResidualHours`: Median absolute deviation of anchor residuals from the model
 - `days[]`: Per-day `CircadianDay` with `nightStartHour`, `nightEndHour`, `localTau`, `localDrift`, `confidenceScore`, `confidence` (tier: "high"/"medium"/"low"), `anchorSleep?`, `isForecast`, `isGap`
 - Legacy compat fields: `tau`, `dailyDrift`, `rSquared`
-
-### Kalman Filter Algorithm (`kalman-v1`)
-
-The Kalman filter algorithm treats circadian phase tracking as a state estimation problem, replacing the regression algorithm's 9-step pipeline with 3 steps and reducing tunable parameters from ~15 to 5.
 
 #### State-space model
 
@@ -445,59 +343,6 @@ This handles 24-hour wraparound naturally while maintaining unbounded phase for 
 - Unified confidence from posterior variance
 - Natural handling of gaps through filter prediction
 
-## Circadian algorithm parameters
-
-All locations below are relative to `src/models/circadian/`.
-
-| Constant                        | Value                                                                                                                     | Location                       |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| Segment gap threshold           | >14 days between records triggers segment split                                                                           | `types.ts`                     |
-| Min anchor weight               | 0.05 (records below excluded)                                                                                             | `regression/anchors.ts`        |
-| Duration factor ramp            | 4h → 7h (linear, plateaus at 7h+)                                                                                         | `regression/anchors.ts`        |
-| Nap weight multiplier           | 0.15 (applied to `!isMainSleep`)                                                                                          | `regression/anchors.ts`        |
-| Sliding window half-width       | 21 days (42-day window)                                                                                                   | `regression/types.ts`          |
-| Max window half-width           | 60 days (120-day window)                                                                                                  | `regression/types.ts`          |
-| Min anchors per window          | 6                                                                                                                         | `regression/types.ts`          |
-| Gaussian sigma                  | 14 days                                                                                                                   | `regression/types.ts`          |
-| Outlier threshold               | 8 hours                                                                                                                   | `regression/types.ts`          |
-| Seed search half-width          | 21 days                                                                                                                   | `regression/types.ts`          |
-| Min seed anchors                | 4                                                                                                                         | `regression/types.ts`          |
-| Expansion lookback              | 30 days                                                                                                                   | `regression/types.ts`          |
-| Regularization half-width       | 60 days (regional slope fallback window)                                                                                  | `regression/types.ts`          |
-| Snap branch conflict            | Prefer pairwise when nearest ≤7 days and diff <6h                                                                         | `regression/unwrap.ts`         |
-| Robust regression               | IRLS + Tukey bisquare, k=4.685, 5 iterations                                                                              | `regression/regression.ts`     |
-| Slope regularization            | slopeConf = density × (1 - residualMAD/4); blend toward regional fit (falls back to global if regional slope implausible) | `regression/analyzeSegment.ts` |
-| Centroid extrapolation          | predictedMid = centroidPred + regularizedSlope × (d - weightedMeanX)                                                      | `regression/analyzeSegment.ts` |
-| Forecast confidence decay       | exp(-0.1 \* daysFromEdge)                                                                                                 | `regression/analyzeSegment.ts` |
-| Smoothing half-width            | 7 days (±7 day neighborhood)                                                                                              | `regression/types.ts`          |
-| Smoothing sigma                 | 3 days (Gaussian kernel for smoothing weights)                                                                            | `regression/types.ts`          |
-| Smoothing jump threshold        | 2h (only smooth days with >2h jump to neighbor)                                                                           | `regression/types.ts`          |
-| Anchor smooth density threshold | 0.4 (anchor-smooth days with density below this)                                                                          | `regression/smoothing.ts`      |
-| Anchor smooth min weight        | 0.5 (require meaningful anchor coverage)                                                                                  | `regression/smoothing.ts`      |
-| Smoothing margin                | 5 days (fade transition at smoothed region boundaries)                                                                    | `regression/smoothing.ts`      |
-| Regime change MAD gate          | residual MAD < 2.0h (only boost confidence for clean fits)                                                                | `regression/analyzeSegment.ts` |
-| Slope clamp                     | regularizedSlope >= 0 (tau >= 24.0h, circadian clock doesn't run backward)                                                | `regression/analyzeSegment.ts` |
-| Backward bridge deviation       | 0.5h (flag if daily shift deviates 0.5h+ backward from expected)                                                          | `regression/smoothing.ts`      |
-| Backward bridge min run         | 3 days (min consecutive backward days to trigger bridging)                                                                | `regression/smoothing.ts`      |
-| Backward bridge max rate        | 3h/day (max interpolation rate sanity check)                                                                              | `regression/smoothing.ts`      |
-
-### Kalman filter algorithm parameters
-
-| Constant                        | Value                                                  | Location                   |
-| ------------------------------- | ------------------------------------------------------ | -------------------------- |
-| Phase process noise (Q_PHASE)   | 0.06 h² (allows moderate phase adaptation)             | `kalman/types.ts`          |
-| Drift process noise (Q_DRIFT)   | 0.003 h²/day² (allows drift to adapt over ~10-15 days) | `kalman/types.ts`          |
-| Base measurement noise (R_BASE) | 3.0 h² (night-to-night sleep timing variability ~1.7h) | `kalman/types.ts`          |
-| Mahalanobis gate threshold      | 3.5 (~99.95% valid observations pass)                  | `kalman/types.ts`          |
-| Initialization window           | 7 days (linear fit for initial state)                  | `kalman/types.ts`          |
-| Default drift prior             | 0.7 h/day (used when ≤2 initial observations)          | `kalman/types.ts`          |
-| Initial phase covariance        | 4.0 h² (2h uncertainty)                                | `kalman/types.ts`          |
-| Initial drift covariance        | 0.25 h²/day² (0.5 h/day uncertainty)                   | `kalman/types.ts`          |
-| Minimum record duration         | 2h (records shorter than this are skipped)             | `kalman/observations.ts`   |
-| Minimum record quality          | 0.1 (records below this are skipped)                   | `kalman/observations.ts`   |
-| Drift clamp range               | [-1.5, +3.0] h/day (same hard limits as regression)    | `kalman/analyzeSegment.ts` |
-| Forecast confidence decay       | exp(-0.1 × daysFromEdge) (same as regression)          | `kalman/analyzeSegment.ts` |
-
 ### CSF algorithm parameters
 
 | Constant               | Value                                                                                 | Location           |
@@ -532,18 +377,6 @@ This penalizes algorithms that either:
 - **Over-smooth** and fail to track real N24 drift (Kalman was 0.03-0.04h p90 before tuning)
 
 After tuning, both algorithms achieve phase consistency comparable to regression (0.49-0.90h p90).
-
-### Ground truth test thresholds
-
-| Metric            | Threshold | Purpose                                               |
-| ----------------- | --------- | ----------------------------------------------------- |
-| Mean error        | < 3.0h    | Average phase error vs manual overlay                 |
-| P90 error         | < 6.0h    | Worst-case phase error (90th percentile)              |
-| Max window tau Δ  | < 50min   | Largest tau deviation in any 90-day window            |
-| Drift penalty     | < 1000    | Cumulative penalty for prolonged extreme drift values |
-| Phase consistency | (logged)  | P90 of day-to-day phase change vs predicted drift     |
-
-The max window tau delta catches algorithms that systematically misestimate drift over extended periods (e.g., Kalman's +75min in Aug-Oct 2024 Aozora, indicating ~1.25 extra revolutions vs manual).
 
 ## Sleep score regression weights
 

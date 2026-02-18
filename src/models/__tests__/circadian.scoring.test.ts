@@ -1,12 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { listAlgorithms, analyzeWithAlgorithm, type CircadianAnalysis } from "../circadian";
-import type { RegressionAnalysis } from "../circadian";
-import { computePeriodogram } from "../periodogram";
 import { generateSyntheticRecords, computeTrueMidpoint, type SyntheticOptions } from "./fixtures/synthetic";
-import { hasRealData, loadRealData } from "./fixtures/loadRealData";
 import { maybeSaveViz } from "./fixtures/visualize";
 
-const AOZORA_FILE = "Aozora_2026-02-13.json";
 import { assertHardDriftLimits, computeDriftPenalty } from "./fixtures/driftPenalty";
 
 const algorithms = listAlgorithms();
@@ -25,7 +21,6 @@ interface AccuracyScore {
     medianPhaseError: number;
     p90PhaseError: number;
     forecastPhaseError: number;
-    residualRatio: number;
 }
 
 /** Score an analysis result against synthetic ground truth */
@@ -66,26 +61,19 @@ function scoreAnalysis(analysis: CircadianAnalysis, opts: SyntheticOptions, hold
     const forecastPhaseError =
         forecastErrors.length > 0 ? forecastErrors.reduce((s, e) => s + e, 0) / forecastErrors.length : 0;
 
-    const noise = opts.noise ?? 0.5;
-    // medianResidualHours is regression-specific; skip for other algorithms
-    const medianResidualHours =
-        "medianResidualHours" in analysis ? (analysis as RegressionAnalysis).medianResidualHours : 0;
-    const residualRatio = noise > 0 ? medianResidualHours / noise : 0;
-
     return {
         tauError,
         meanPhaseError,
         medianPhaseError,
         p90PhaseError,
         forecastPhaseError,
-        residualRatio,
     };
 }
 
 /** Print a score summary table row */
 function logScore(label: string, score: AccuracyScore): void {
     console.log(
-        `  ${label.padEnd(24)} tau±${score.tauError.toFixed(3)}  phase: mean=${score.meanPhaseError.toFixed(2)} med=${score.medianPhaseError.toFixed(2)} p90=${score.p90PhaseError.toFixed(2)}  resid=${score.residualRatio.toFixed(2)}`
+        `  ${label.padEnd(24)} tau±${score.tauError.toFixed(3)}  phase: mean=${score.meanPhaseError.toFixed(2)} med=${score.medianPhaseError.toFixed(2)} p90=${score.p90PhaseError.toFixed(2)}`
     );
 }
 
@@ -111,7 +99,6 @@ function logDriftPenalty(label: string, analysis: CircadianAnalysis): void {
 for (const algo of algorithms) {
     const analyze = (records: Parameters<typeof analyzeWithAlgorithm>[1], extraDays?: number) =>
         analyzeWithAlgorithm(algo.id, records, extraDays);
-    const isRegression = algo.id === "regression-v1";
 
     describe(`${algo.name} (${algo.id}) — benchmark: tau estimation sweep`, () => {
         const taus = [24.0, 24.2, 24.5, 24.7, 25.0, 25.5];
@@ -178,17 +165,11 @@ for (const algo of algorithms) {
                 const score = scoreAnalysis(analysis, opts);
                 logScore(`noise=${noise}`, score);
                 benchmark(`noise/${noise}`, "tauError", score.tauError, 0.05);
-                if (isRegression) {
-                    benchmark(`noise/${noise}`, "residualRatio", score.residualRatio, 0.3, false);
-                }
                 benchmark(`noise/${noise}`, "meanPhaseError", score.meanPhaseError, 0.5 + noise * 0.3);
                 assertHardDriftLimits(analysis.days);
                 logDriftPenalty(`noise/${noise}`, analysis);
                 // Catastrophic guards
                 expect(score.tauError).toBeLessThan(1.0);
-                if (isRegression) {
-                    expect(score.residualRatio).toBeLessThan(5.0);
-                }
                 expect(score.meanPhaseError).toBeLessThan(5.0);
             });
         }
