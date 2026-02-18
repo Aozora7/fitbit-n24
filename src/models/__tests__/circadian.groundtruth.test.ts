@@ -482,12 +482,12 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                     expect(severeStreakCount).toBeLessThan(10);
                     expect(penalty.totalPenalty).toBeLessThan(500);
 
-                    // ── Last-14-days edge accuracy ──────────────────────
+                    // ── Edge accuracy ──────────────────────
                     // Guards against algorithms lagging at the end of the dataset
                     // (e.g. RTS smoother's unsmoothed terminal state bias).
                     // Thresholds are the tightest both CSF and regression can pass
                     // across all ground truth datasets.
-                    const EDGE_DAYS = 14;
+                    const EDGE_DAYS = 7;
                     if (pairs.length >= EDGE_DAYS) {
                         const edgePairs = [...pairs].sort((a, b) => a.date.localeCompare(b.date)).slice(-EDGE_DAYS);
                         const edgeErrs = edgePairs.map((p) => p.absError).sort((a, b) => a - b);
@@ -498,8 +498,8 @@ describe.skipIf(!hasTestData)("ground truth scoring", () => {
                                 `  last${EDGE_DAYS}d [${algorithm.id}]: mean=${edgeMean.toFixed(2)}h p90=${edgeP90.toFixed(2)}h`
                             );
                         }
-                        expect(edgeMean).toBeLessThan(4.0);
-                        expect(edgeP90).toBeLessThan(10.0);
+                        expect(edgeMean).toBeLessThan(1.5);
+                        expect(edgeP90).toBeLessThan(2.5);
                     }
                     // TODO: Phase step bounds - currently all algorithms violate
                     // The night window duration changes cause start/end to shift

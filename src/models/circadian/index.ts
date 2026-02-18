@@ -12,7 +12,6 @@ import { analyzeCircadian as analyzeCSF, ALGORITHM_ID as CSF_ALGORITHM_ID } from
 
 export type { CircadianDay, CircadianAnalysis } from "./types";
 export type { RegressionAnalysis, AnchorPoint } from "./regression/types";
-export type { KalmanAnalysis } from "./kalman/types";
 export type { CSFAnalysis, CSFConfig } from "./csf/types";
 export type { CircadianAlgorithm } from "./registry";
 export { registerAlgorithm, getAlgorithm, listAlgorithms } from "./registry";
@@ -40,16 +39,6 @@ if (isDevMode || isNodeCLI) {
         analyze: analyzeRegression,
     };
     registerAlgorithm(regressionAlgorithm);
-
-    const { analyzeCircadian: analyzeKalman, ALGORITHM_ID: KALMAN_ALGORITHM_ID } = await import("./kalman");
-    const kalmanAlgorithm: CircadianAlgorithm = {
-        id: KALMAN_ALGORITHM_ID,
-        name: "Kalman Filter",
-        description:
-            "State-space model with forward Kalman filter and RTS backward smoother for optimal phase tracking",
-        analyze: analyzeKalman,
-    };
-    registerAlgorithm(kalmanAlgorithm);
 }
 
 export function analyzeWithAlgorithm(
