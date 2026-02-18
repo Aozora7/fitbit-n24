@@ -70,26 +70,34 @@ export function predict(state: CSFState, config: CSFConfig): CSFState {
     };
 }
 
-export function regularizeTau(state: CSFState, config: CSFConfig): CSFState {
+export function updatePrior(state: CSFState, config: CSFConfig): CSFState {
     const drift = state.tau - 24;
     const priorDrift = config.tauPrior - 24;
 
-    const driftDiff = drift - priorDrift;
-
-    let regularizationStrength: number;
+    let R: number;
     if (drift < 0) {
-        regularizationStrength = 0.04;
+        R = config.tauPriorNoise.forward;
     } else if (drift > priorDrift) {
-        regularizationStrength = 0.01;
+        R = config.tauPriorNoise.backward;
     } else {
-        regularizationStrength = 0.005;
+        R = config.tauPriorNoise.none;
     }
 
-    const regularizedTau = state.tau - driftDiff * regularizationStrength;
+    const K = state.tauVar / (state.tauVar + R);
+    const innovation = config.tauPrior - state.tau;
+
+    const updatedTau = state.tau + K * innovation;
+    const updatedTauVar = (1 - K) * state.tauVar;
+
+    // Covariance update: P_phase_tau = P_phase_tau - K * P_phase_tau = (1-K) * P_phase_tau
+    // Since we're updating tau directly, the cross-term scales similarly.
+    const updatedCov = (1 - K) * state.cov;
 
     return {
         ...state,
-        tau: Math.max(TAU_MIN, Math.min(TAU_MAX, regularizedTau)),
+        tau: Math.max(TAU_MIN, Math.min(TAU_MAX, updatedTau)),
+        tauVar: Math.max(0.001, updatedTauVar),
+        cov: updatedCov,
     };
 }
 
@@ -98,6 +106,15 @@ export function update(predicted: CSFState, anchor: CSFAnchor, config: CSFConfig
     const priorKappa = Math.max(0.001, 1 / Math.max(predicted.phaseVar, 0.01));
 
     const resolvedMeasurement = resolveAmbiguity(anchor.midpointHour, predicted.phase);
+
+    // Mahalanobis distance gating
+    const phaseResidual = circularDiff(resolvedMeasurement, predicted.phase);
+    const innovationVar = Math.max(0.01, predicted.phaseVar + 1 / measurementKappa);
+    const mahalanobisSq = (phaseResidual * phaseResidual) / innovationVar;
+
+    if (mahalanobisSq > config.gateThreshold * config.gateThreshold) {
+        return predicted;
+    }
 
     const normalizedPredicted = normalizeAngle(predicted.phase);
     const normalizedMeasurement = normalizeAngle(resolvedMeasurement);
@@ -116,11 +133,11 @@ export function update(predicted: CSFState, anchor: CSFAnchor, config: CSFConfig
 
     const updatedPhase = predicted.phase + phaseCorrection;
 
-    const phaseResidual = circularDiff(resolvedMeasurement, predicted.phase);
-
     // Clamp tau innovation consistently with phase correction clamp
-    const clampedInnovation = Math.max(-config.maxCorrectionPerStep, Math.min(config.maxCorrectionPerStep, phaseResidual));
-    const innovationVar = Math.max(0.01, predicted.phaseVar + 1 / measurementKappa);
+    const clampedInnovation = Math.max(
+        -config.maxCorrectionPerStep,
+        Math.min(config.maxCorrectionPerStep, phaseResidual)
+    );
     const kalmanGain = predicted.cov / innovationVar;
 
     let updatedTau = predicted.tau + kalmanGain * clampedInnovation;
@@ -156,7 +173,7 @@ export function forwardPass(anchors: CSFAnchor[], firstDay: number, lastDay: num
             state = update(state, anchor, config);
         }
 
-        state = regularizeTau(state, config);
+        state = updatePrior(state, config);
 
         states.push(state);
     }

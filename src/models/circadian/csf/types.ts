@@ -16,6 +16,12 @@ export interface CSFConfig {
     tauPrior: number;
     tauPriorVar: number;
     maxCorrectionPerStep: number;
+    gateThreshold: number;
+    tauPriorNoise: {
+        forward: number;
+        backward: number;
+        none: number;
+    };
 }
 
 export interface CSFAnchor {
@@ -55,6 +61,12 @@ export const DEFAULT_CONFIG: CSFConfig = {
     tauPrior: 25.0,
     tauPriorVar: 0.1,
     maxCorrectionPerStep: 4.0,
+    gateThreshold: 6.0,
+    tauPriorNoise: {
+        forward: 0.1,
+        backward: 1.0,
+        none: 5.0,
+    },
 };
 
 export const MIN_ANCHORS = 2;
