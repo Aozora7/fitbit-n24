@@ -52,7 +52,6 @@ for (const algo of algorithms) {
 
             let advancingCount = 0;
             for (let i = 1; i < midpoints.length; i++) {
-                const diff = circularDistance(midpoints[i]!, midpoints[i - 1]!);
                 const signed = ((midpoints[i]! - midpoints[i - 1]! + 12) % 24) - 12;
                 if (signed < 0) advancingCount++;
             }

@@ -51,6 +51,8 @@ export interface AppState {
     setShowCircadian: (v: boolean) => void;
     showPeriodogram: boolean;
     setShowPeriodogram: (v: boolean) => void;
+    showPhaseChart: boolean;
+    setShowPhaseChart: (v: boolean) => void;
     colorMode: ColorMode;
     setColorMode: (v: ColorMode) => void;
     tauHours: number;

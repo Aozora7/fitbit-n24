@@ -381,7 +381,7 @@ export function generateVizHtml(options: VizOptions): string {
     const data = buildVizData(options);
     return HTML_TEMPLATE.replace("{{TITLE}}", data.meta.title.replace(/</g, "&lt;")).replace(
         "{{DATA}}",
-        JSON.stringify(data),
+        JSON.stringify(data)
     );
 }
 

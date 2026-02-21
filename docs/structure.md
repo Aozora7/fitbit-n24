@@ -74,6 +74,7 @@ src/
     DataToolbar.tsx                  Auth buttons, fetch/stop, import/export, clear cache
     VisualizationControls.tsx        Display toggles (double plot, circadian, periodogram, schedule), algorithm selector, color mode, row height/width, forecast
     DateRangeSlider.tsx              Dual-range date filter with year marks
+    PhaseChart.tsx                   Canvas-based phase chart: cumulative onset from circadian analysis (band, onset line, sleep dots, day/clock Y-axis modes, resizable)
     Periodogram.tsx                  Canvas-based periodogram chart (line plot, significance threshold, peak marker)
     Legend.tsx                       Color legend (stages mode or quality gradient mode)
     ScheduleEditor.tsx               Weekly schedule editor (time inputs, day-of-week toggles)

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { listAlgorithms, analyzeWithAlgorithm, type CircadianDay } from "../circadian";
-import { generateSyntheticRecords, computeTrueMidpoint } from "./fixtures/synthetic";
+import { generateSyntheticRecords } from "./fixtures/synthetic";
 import { maybeSaveViz } from "./fixtures/visualize";
 
 // ── Regime change tests ─────────────────────────────────────────────
@@ -70,7 +70,6 @@ for (const algo of algorithms) {
                 algorithmId: algo.id,
                 groundTruth: opts,
             });
-            const overlayMidpoints = result.days.map(getOverlayMidpoint);
 
             // Check that the first regime is identified as entrained (approx 24h)
             const entrainedTaus = result.days.slice(10, 50).map((d) => d.localTau);

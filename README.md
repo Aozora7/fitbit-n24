@@ -14,6 +14,7 @@ In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/f
 
 - Canvas actogram with sleep stage coloring, one row per day
 - Periodogram for circadian frequency analysis
+- Phase advance chart
 - Optional double-plot mode for patterns crossing row boundaries
 - Adjustable row height
 - Adjustable row width to match the data's circadian period, allowing sleep records to line up

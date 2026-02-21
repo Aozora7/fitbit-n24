@@ -6,7 +6,7 @@ Client-side React app that visualizes Fitbit sleep data as an actogram with circ
 
 ```bash
 npm run dev       # Dev server at http://localhost:5173 (--host for network access)
-npm run build     # TypeScript check (tsc -b) + Vite production build
+npm run build     # ESLint, Prettier, TypeScript check (tsc -b) + Vite production build
 npm run preview   # Preview production build locally
 npm run analyze -- <file.json> [algorithmId] # Run circadian analysis on exported sleep data
 npm run analyze-period -- <file.json> [startDate] [endDate] [algorithmId] # Analyze specific date range
@@ -27,7 +27,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 - **Client-only SPA** — no backend server, all data stays in browser
 - **Single context** — `AppContextDef.ts` defines types + context object; `AppContext.tsx` contains only `AppProvider`; `useAppContext.ts` and `usePersistedState.ts` are in separate files — all split for Vite Fast Refresh compatibility
 - **Provider hierarchy** — `main.tsx`: `AuthProvider` → `AppProvider` → `App`
-- **Canvas rendering** — actogram and periodogram use HTML Canvas via `useEffect`, not React DOM elements
+- **Canvas rendering** — actogram, periodogram, and phase advance chart use HTML Canvas via `useEffect`, not React DOM elements
 - **Pure analysis functions** — `analyzeWithAlgorithm()` and `computePeriodogram()` are pure functions called via `useMemo`
 - **CLI runner** — `cli/analyze.ts` runs analysis functions directly in Node.js via `tsx`, using `parseSleepData()` from `loadLocalData.ts` to bypass browser `fetch()`
 
@@ -50,6 +50,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/utils/exportPNG.ts`                         | PNG export: composites actogram + periodogram + header/legend into downloadable image |
 | `src/components/DataToolbar.tsx`                 | Auth buttons, fetch/stop, import/export, PNG save, overlay export (icon+text buttons) |
 | `src/components/VisualizationControls.tsx`       | Display toggles, algorithm selector, color mode, row height/width, forecast controls  |
+| `src/components/PhaseChart.tsx`                  | Phase chart: cumulative onset phase from circadian analysis, slope = tau              |
 | `src/components/Actogram/useActogramRenderer.ts` | Canvas rendering engine for the actogram                                              |
 | `src/components/Actogram/useOverlayEditor.ts`    | Interactive overlay editor hook (click/drag/delete control points)                    |
 | `cli/analyze.ts`                                 | CLI entry point for running analysis in Node.js                                       |

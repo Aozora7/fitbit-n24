@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-    interpolateOverlay,
-    unwrapMidpoint,
-    unwrapMidpointForEditor,
-    type OverlayControlPoint,
-} from "../overlayPath";
+import { interpolateOverlay, unwrapMidpoint, unwrapMidpointForEditor, type OverlayControlPoint } from "../overlayPath";
 
 describe("unwrapMidpoint", () => {
     it("no-op when already close", () => {

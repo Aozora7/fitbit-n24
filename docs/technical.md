@@ -32,8 +32,12 @@ Fitbit API (v1.2)                        Local JSON file
             |       -> useActogramRenderer() (purple/amber overlay band with variable alpha)
             |
             +---> computePeriodogram()  (windowed phase coherence periodogram)
-                    -> PeriodogramResult { points, peakPeriod, significanceThreshold, ... }
-                    -> Periodogram.tsx (Canvas chart)
+            |       -> PeriodogramResult { points, peakPeriod, significanceThreshold, ... }
+            |       -> Periodogram.tsx (Canvas chart)
+            |
+            +---> buildPhasePoints()  (cumulative unwrapped phase from CircadianDay[])
+                    -> PhasePoint[] + buildSleepDots()
+                    -> PhaseChart.tsx (Canvas chart)
 ```
 
 All computation happens in `useMemo` hooks inside `AppContext.tsx`. The actogram rows and circadian analysis are recomputed when the underlying records or filter range change. During a fetch, records accumulate incrementally and the visualization updates after each API page.
@@ -407,6 +411,53 @@ The result includes both full-range points and a `trimmedPoints` array auto-focu
 ### Significance threshold
 
 The Rayleigh test significance threshold for p < 0.01: `R²_crit = -ln(0.01) / N_eff`, where N_eff is the effective sample size accounting for non-uniform weights.
+
+## Phase chart
+
+`PhaseChart.tsx` renders a canvas-based cumulative phase chart from `circadianAnalysis`. Instead of plotting raw sleep times (which require awkward phase wrapping in a 24h window), it plots the circadian model's onset phase in unbounded hours. The slope of the line directly shows tau: flat = entrained at 24h, positive slope = freerunning (tau > 24), changing slope = tau variation over time. This works for both DSPD (phase stays within ~24h range) and N24 (phase accumulates across days/weeks).
+
+### Data preparation
+
+`buildPhasePoints()` takes `circadianAnalysis.days[]` and produces cumulative unwrapped phase:
+
+1. For each non-gap `CircadianDay`, take `nightStartHour` as the primary onset value
+2. Phase-unwrap onset sequentially via nearest-branch (±12h jump threshold)
+3. Derive nightEnd from onset + sleep duration (preserves band width)
+
+`buildSleepDots()` places actual sleep record onsets in the same coordinate system by snapping each to the nearest circadian analysis day's unwrapped onset.
+
+### Visual layers (draw order)
+
+1. Background + adaptive grid (3h/6h/12h/24h/48h intervals based on Y range span)
+2. Midnight (00:00) reference lines (dashed amber, in clock-time mode only)
+3. Schedule bands (repeating every 24h across the Y range — shows where obligations conflict with phase as it drifts)
+4. Circadian band (purple fill between nightStart and nightEnd; amber for forecast)
+5. Circadian onset line (purple solid for historical, amber dashed for forecast)
+6. Sleep onset dots (cyan, amber if truncated — duration < personal average - 1.5h)
+7. Axes, labels, plot border
+
+### Y-axis modes
+
+The Y-axis adapts based on the cumulative phase span:
+
+- **Clock mode** (span < 72h): Labels show `HH:MM` clock times. Grid at 3h/6h/12h intervals. Midnight lines drawn as dashed amber reference. Suitable for DSPD and short date ranges.
+- **Day mode** (span >= 72h): Labels show day offsets relative to the first data point's nearest midnight (e.g., `0d`, `+3d`, `-2d`). Grid at 24h or 48h intervals. Y-axis title changes to "Phase (days)". Suitable for N24 freerunning data spanning multiple cycles.
+
+### X-axis
+
+Calendar dates. Tick interval adapts to data span (7d–90d).
+
+### Vertical resize
+
+Height is user-adjustable via a drag handle at the bottom of the chart (150–800px range, persisted as `viz.PhaseChartHeight`).
+
+### Tooltip
+
+Hover shows date, sleep window (clock times), local tau, and confidence percentage. Forecast days are labeled.
+
+### Visibility toggle
+
+Controlled by `showPhaseChart` (persisted as `viz.showPhaseChart`, default `false`). Toggle label is "Phase chart". Returns `null` when hidden or when no analysis data exists.
 
 ## Manual overlay editor
 

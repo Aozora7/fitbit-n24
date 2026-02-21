@@ -22,21 +22,13 @@ const STAGE_LEGEND = [
     { label: "Wake", color: "#ef4444" },
 ];
 
-export function exportActogramPNG(
-    stats: ExportStats,
-    options?: { includePeriodogram?: boolean },
-): void {
-    const actogramCanvas = document.getElementById(
-        "actogram-canvas",
-    ) as HTMLCanvasElement | null;
+export function exportActogramPNG(stats: ExportStats, options?: { includePeriodogram?: boolean }): void {
+    const actogramCanvas = document.getElementById("actogram-canvas") as HTMLCanvasElement | null;
     if (!actogramCanvas) return;
 
-    const periodogramCanvas =
-        options?.includePeriodogram
-            ? (document.getElementById(
-                  "periodogram-canvas",
-              ) as HTMLCanvasElement | null)
-            : null;
+    const periodogramCanvas = options?.includePeriodogram
+        ? (document.getElementById("periodogram-canvas") as HTMLCanvasElement | null)
+        : null;
 
     // Detect DPR from actogram canvas
     const dpr =
@@ -51,17 +43,10 @@ export function exportActogramPNG(
     const headerHeight = 64;
     const legendHeight = 48;
     const actogramCSSHeight = actogramCanvas.clientHeight;
-    const periodogramCSSHeight = periodogramCanvas
-        ? periodogramCanvas.clientHeight
-        : 0;
+    const periodogramCSSHeight = periodogramCanvas ? periodogramCanvas.clientHeight : 0;
     const gapBetween = periodogramCanvas ? 8 : 0;
 
-    const totalCSSHeight =
-        headerHeight +
-        actogramCSSHeight +
-        gapBetween +
-        periodogramCSSHeight +
-        legendHeight;
+    const totalCSSHeight = headerHeight + actogramCSSHeight + gapBetween + periodogramCSSHeight + legendHeight;
 
     // Create offscreen canvas at device-pixel resolution
     const out = document.createElement("canvas");
@@ -112,13 +97,7 @@ export function exportActogramPNG(
         y += gapBetween;
         ctx.save();
         ctx.translate(0, y);
-        ctx.drawImage(
-            periodogramCanvas,
-            0,
-            0,
-            cssWidth,
-            periodogramCSSHeight,
-        );
+        ctx.drawImage(periodogramCanvas, 0, 0, cssWidth, periodogramCSSHeight);
         ctx.restore();
         y += periodogramCSSHeight;
     }

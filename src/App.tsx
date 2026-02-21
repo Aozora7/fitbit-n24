@@ -5,6 +5,7 @@ import VisualizationControls from "./components/VisualizationControls";
 import ScheduleEditor from "./components/ScheduleEditor";
 import Actogram from "./components/Actogram/Actogram";
 import Periodogram from "./components/Periodogram";
+import PhaseChart from "./components/PhaseChart";
 import DateRangeSlider from "./components/DateRangeSlider";
 import Legend from "./components/Legend";
 
@@ -29,6 +30,7 @@ export default function App() {
                 <>
                     <div className="mx-auto max-w-5xl">
                         <DateRangeSlider />
+                        <PhaseChart />
                         <Periodogram />
                         <Actogram />
                     </div>

@@ -28,7 +28,7 @@ export interface DriftPenaltyResult {
  * Consecutive multiplier: day penalty × streak length for superlinear growth.
  */
 export function computeDriftPenalty(
-    days: ReadonlyArray<Pick<CircadianDay, "localDrift" | "isForecast" | "isGap">>,
+    days: ReadonlyArray<Pick<CircadianDay, "localDrift" | "isForecast" | "isGap">>
 ): DriftPenaltyResult {
     const dataDays = days.filter((d) => !d.isForecast && !d.isGap);
     let totalPenalty = 0;
@@ -42,7 +42,9 @@ export function computeDriftPenalty(
 
         if (drift >= DRIFT_MIN && drift < PENALTY_LOWER_START) {
             // Near lower limit: linear 0→1 as drift goes from -0.5 to -1.5
-            dayPenalty = (Math.abs(drift) - Math.abs(PENALTY_LOWER_START)) / (Math.abs(DRIFT_MIN) - Math.abs(PENALTY_LOWER_START));
+            dayPenalty =
+                (Math.abs(drift) - Math.abs(PENALTY_LOWER_START)) /
+                (Math.abs(DRIFT_MIN) - Math.abs(PENALTY_LOWER_START));
         } else if (drift > PENALTY_UPPER_START && drift <= DRIFT_MAX) {
             // Near upper limit: linear 0→1 as drift goes from 2.0 to 3.0
             dayPenalty = (drift - PENALTY_UPPER_START) / (DRIFT_MAX - PENALTY_UPPER_START);
@@ -71,17 +73,17 @@ export function computeDriftPenalty(
  * localDrift must be in [-1.5, +3.0] h/day.
  */
 export function assertHardDriftLimits(
-    days: ReadonlyArray<Pick<CircadianDay, "localDrift" | "isForecast" | "isGap" | "date">>,
+    days: ReadonlyArray<Pick<CircadianDay, "localDrift" | "isForecast" | "isGap" | "date">>
 ): void {
     for (const day of days) {
         if (day.isForecast || day.isGap) continue;
         expect(
             day.localDrift,
-            `localDrift=${day.localDrift.toFixed(3)} on ${day.date} exceeds hard minimum (-1.5)`,
+            `localDrift=${day.localDrift.toFixed(3)} on ${day.date} exceeds hard minimum (-1.5)`
         ).toBeGreaterThanOrEqual(DRIFT_MIN);
         expect(
             day.localDrift,
-            `localDrift=${day.localDrift.toFixed(3)} on ${day.date} exceeds hard maximum (3.0)`,
+            `localDrift=${day.localDrift.toFixed(3)} on ${day.date} exceeds hard maximum (3.0)`
         ).toBeLessThanOrEqual(DRIFT_MAX);
     }
 }

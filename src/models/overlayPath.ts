@@ -93,7 +93,7 @@ export function interpolateOverlay(
     controlPoints: OverlayControlPoint[],
     sleepWindowHours: number,
     startDate: string,
-    endDate: string,
+    endDate: string
 ): OverlayDay[] {
     if (controlPoints.length === 0) return [];
 
