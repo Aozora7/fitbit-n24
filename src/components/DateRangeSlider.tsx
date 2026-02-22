@@ -116,12 +116,14 @@ export default function DateRangeSlider() {
         setSavedPreset(0);
     }, [totalDays, handleFilterChange, setSavedPreset]);
 
-    // Reapply saved preset when totalDays becomes available (e.g. on reload/data fetch)
-    const presetAppliedRef = useRef(false);
+    // Reapply saved preset when totalDays changes (e.g. on reload/data fetch)
+    const prevTotalDaysRef = useRef(totalDays);
     useEffect(() => {
-        if (totalDays > 1 && savedPreset !== null && !presetAppliedRef.current) {
-            presetAppliedRef.current = true;
+        if (totalDays > 1 && savedPreset !== null && totalDays !== prevTotalDaysRef.current) {
+            prevTotalDaysRef.current = totalDays;
             if (savedPreset === 0) {
+                setLocalStart(0);
+                setLocalEnd(totalDays);
                 handleFilterChange(0, totalDays);
             } else {
                 const start = Math.max(0, totalDays - savedPreset);
