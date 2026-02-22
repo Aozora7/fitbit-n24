@@ -119,7 +119,7 @@ export default function DateRangeSlider() {
     // Reapply saved preset when totalDays changes (e.g. on reload/data fetch)
     const prevTotalDaysRef = useRef(totalDays);
     useEffect(() => {
-        if (totalDays > 1 && savedPreset !== null && totalDays !== prevTotalDaysRef.current) {
+        if (totalDays > 1 && savedPreset !== null) {
             prevTotalDaysRef.current = totalDays;
             if (savedPreset === 0) {
                 setLocalStart(0);
