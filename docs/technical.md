@@ -138,11 +138,11 @@ The app uses Authorization Code with PKCE (no client secret):
 
 1. `generateVerifier()`: 128 random characters from `crypto.getRandomValues`
 2. `computeChallenge()`: SHA-256 hash via Web Crypto API, base64url-encoded
-3. `startAuth()`: Stores verifier in `sessionStorage`, redirects to Fitbit authorize endpoint with `code_challenge`
+3. `startAuth()`: Stores verifier in `localStorage`, redirects to Fitbit authorize endpoint with `code_challenge`
 4. After redirect back, `AuthProvider` extracts `?code=` from the URL
-5. `exchangeCode()`: POSTs to Fitbit token endpoint with the verifier and client ID
+5. `exchangeCode()`: POSTs to Fitbit token endpoint with the verifier and client ID; returns access token, refresh token, expiry, and user ID
 
-Tokens are stored in `sessionStorage` (cleared when the tab closes). The client ID is read from `VITE_FITBIT_CLIENT_ID` environment variable — if not set, auth UI is hidden.
+Tokens are stored in `localStorage` (persisted across sessions). On mount, `AuthProvider` silently refreshes an expired token using the stored refresh token. A proactive refresh is scheduled 5 minutes before expiry. The client ID is read from `VITE_FITBIT_CLIENT_ID` environment variable — if not set, auth UI is hidden.
 
 ### API fetching (`api/sleepApi.ts`)
 

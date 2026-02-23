@@ -81,8 +81,8 @@ const Privacy = ({ onClose }: { onClose: () => void }) => (
             <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
                 <li>Static client-side SPA with no backend server, database, or analytics.</li>
                 <li>
-                    OAuth 2.0 PKCE flow — access token stored in <code className="text-gray-300">sessionStorage</code>,
-                    cleared when you close the tab.
+                    OAuth 2.0 PKCE flow — access and refresh tokens stored in{" "}
+                    <code className="text-gray-300">localStorage</code>, cleared when you sign out.
                 </li>
                 <li>
                     All API requests go directly from your browser to{" "}
