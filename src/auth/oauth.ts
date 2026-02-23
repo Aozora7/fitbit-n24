@@ -52,11 +52,45 @@ export async function startAuth(): Promise<void> {
     window.location.href = `${FITBIT_AUTH_URL}?${params.toString()}`;
 }
 
+export interface TokenResult {
+    accessToken: string;
+    expiresIn: number;
+    refreshToken: string;
+    userId: string;
+}
+
+async function postToTokenEndpoint(body: URLSearchParams): Promise<TokenResult> {
+    const response = await fetch(FITBIT_TOKEN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Token request failed: ${response.status} ${text}`);
+    }
+
+    const data = (await response.json()) as {
+        access_token: string;
+        expires_in: number;
+        refresh_token: string;
+        user_id: string;
+    };
+
+    return {
+        accessToken: data.access_token,
+        expiresIn: data.expires_in,
+        refreshToken: data.refresh_token,
+        userId: data.user_id,
+    };
+}
+
 /**
  * Exchange the authorization code for an access token.
  * Called after the OAuth redirect with ?code=... in the URL.
  */
-export async function exchangeCode(code: string): Promise<{ accessToken: string; expiresIn: number; userId: string }> {
+export async function exchangeCode(code: string): Promise<TokenResult> {
     const verifier = localStorage.getItem("pkce_verifier");
     if (!verifier) throw new Error("No PKCE verifier found in session");
 
@@ -71,27 +105,23 @@ export async function exchangeCode(code: string): Promise<{ accessToken: string;
         code_verifier: verifier,
     });
 
-    const response = await fetch(FITBIT_TOKEN_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
+    const result = await postToTokenEndpoint(body);
+    localStorage.removeItem("pkce_verifier");
+    return result;
+}
+
+/**
+ * Use a refresh token to obtain a new access token.
+ * Fitbit uses rolling refresh — the returned refreshToken replaces the old one.
+ */
+export async function refreshAccessToken(refreshToken: string): Promise<TokenResult> {
+    const clientId = getClientId();
+
+    const body = new URLSearchParams({
+        client_id: clientId,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
     });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Token exchange failed: ${response.status} ${text}`);
-    }
-
-    const data = (await response.json()) as {
-        access_token: string;
-        expires_in: number;
-        user_id: string;
-    };
-    localStorage.removeItem("pkce_verifier");
-
-    return {
-        accessToken: data.access_token,
-        expiresIn: data.expires_in,
-        userId: data.user_id,
-    };
+    return postToTokenEndpoint(body);
 }
