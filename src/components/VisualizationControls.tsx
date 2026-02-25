@@ -139,6 +139,8 @@ export default function VisualizationControls() {
         setCircadianAlgorithmId,
         sortDirection,
         setSortDirection,
+        showDateLabels,
+        setShowDateLabels,
     } = useAppContext();
 
     const algorithms = listAlgorithms();
@@ -262,6 +264,7 @@ export default function VisualizationControls() {
                                 onChange={setSortDirection}
                             />
                         </div>
+                        <Toggle checked={showDateLabels} onChange={setShowDateLabels} label="Date labels" />
                         <RowWidthControl />
 
                         {/* ── Divider ── */}

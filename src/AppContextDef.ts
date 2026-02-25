@@ -47,6 +47,8 @@ export interface AppState {
     // Visualization settings
     doublePlot: boolean;
     setDoublePlot: (v: boolean) => void;
+    showDateLabels: boolean;
+    setShowDateLabels: (v: boolean) => void;
     showCircadian: boolean;
     setShowCircadian: (v: boolean) => void;
     showPeriodogram: boolean;

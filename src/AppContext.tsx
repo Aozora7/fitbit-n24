@@ -22,6 +22,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Visualization settings (persisted to localStorage)
     const [doublePlot, setDoublePlot] = usePersistedState("viz.doublePlot", false);
+    const [showDateLabels, setShowDateLabels] = usePersistedState("viz.showDateLabels", true);
     const [rowHeight, setRowHeight] = usePersistedState("viz.rowHeight", 5);
     const [showCircadian, setShowCircadian] = usePersistedState("viz.showCircadian", true);
     const [showPeriodogram, setShowPeriodogram] = usePersistedState("viz.showPeriodogram", true);
@@ -194,6 +195,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             avgTimeInBedPerDay,
             doublePlot,
             setDoublePlot,
+            showDateLabels,
+            setShowDateLabels,
             showCircadian,
             setShowCircadian,
             showPeriodogram,
@@ -244,6 +247,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             avgSleepPerDay,
             avgTimeInBedPerDay,
             doublePlot,
+            showDateLabels,
             showCircadian,
             showPeriodogram,
             showPhaseChart,

@@ -20,6 +20,7 @@ export interface ActogramConfig {
     showSchedule?: boolean;
     scheduleEntries?: ScheduleEntry[];
     sortDirection?: "newest" | "oldest";
+    showDateLabels?: boolean; // default true
 }
 
 const DEFAULT_CONFIG: ActogramConfig = {
@@ -97,8 +98,11 @@ export function useActogramRenderer(
     const hoursPerRow = cfg.doublePlot ? baseHours * 2 : baseHours;
     const newestFirst = cfg.sortDirection !== "oldest";
     const nextDayOffset = newestFirst ? -1 : 1;
-    // Wider left margin for tau mode labels ("YYYY-MM-DD HH:mm")
-    if (tauMode && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
+    // Adjust left margin based on label visibility and mode
+    if (cfg.showDateLabels === false && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
+        // cfg.leftMargin = 8;
+    } else if (tauMode && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
+        // Wider left margin for tau mode labels ("YYYY-MM-DD HH:mm")
         cfg.leftMargin = 110;
     }
 
@@ -235,6 +239,35 @@ export function useActogramRenderer(
         // Clear
         ctx.fillStyle = COLORS.background;
         ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+        // Alternating month bands
+        for (let i = 0; i < rows.length; i++) {
+            const dateStr = rows[i]!.date.slice(0, 10); // "YYYY-MM-DD"
+            const year = parseInt(dateStr.slice(0, 4));
+            const month = parseInt(dateStr.slice(5, 7)) - 1; // 0-indexed
+            const monthIndex = year * 12 + month;
+            if (monthIndex % 2 === 0) {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+                ctx.fillRect(plotLeft, plotTop + i * cfg.rowHeight, plotWidth, cfg.rowHeight);
+            }
+        }
+
+        // Year boundary lines
+        ctx.save();
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.55)";
+        ctx.lineWidth = 1;
+        for (let i = 1; i < rows.length; i++) {
+            const prevYear = rows[i - 1]!.date.slice(0, 4);
+            const currYear = rows[i]!.date.slice(0, 4);
+            if (prevYear !== currYear) {
+                const y = plotTop + i * cfg.rowHeight;
+                ctx.beginPath();
+                ctx.moveTo(plotLeft, y);
+                ctx.lineTo(plotLeft + plotWidth, y);
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
 
         // Draw hour grid lines
         ctx.strokeStyle = COLORS.grid;
@@ -563,14 +596,16 @@ export function useActogramRenderer(
         }
 
         // Date labels
-        ctx.fillStyle = COLORS.text;
-        ctx.font = "10px system-ui, sans-serif";
-        ctx.textAlign = "right";
-        const labelInterval = cfg.rowHeight < 6 ? 7 : 1;
-        for (let i = 0; i < rows.length; i += labelInterval) {
-            const row = rows[i]!;
-            const y = plotTop + i * cfg.rowHeight + cfg.rowHeight;
-            ctx.fillText(row.date, plotLeft - 6, y);
+        if (cfg.showDateLabels !== false) {
+            ctx.fillStyle = COLORS.text;
+            ctx.font = "10px system-ui, sans-serif";
+            ctx.textAlign = "right";
+            const labelInterval = cfg.rowHeight < 6 ? 7 : 1;
+            for (let i = 0; i < rows.length; i += labelInterval) {
+                const row = rows[i]!;
+                const y = plotTop + i * cfg.rowHeight + cfg.rowHeight;
+                ctx.fillText(row.date, plotLeft - 6, y);
+            }
         }
 
         // Editor overlay (control points + path line)

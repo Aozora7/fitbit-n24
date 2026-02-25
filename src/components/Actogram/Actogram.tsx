@@ -22,6 +22,7 @@ export default function Actogram() {
         setOverlayControlPoints,
         manualOverlayDays,
         sortDirection,
+        showDateLabels,
     } = useAppContext();
 
     const effectiveForecastDays = forecastDisabled ? 0 : forecastDays;
@@ -41,6 +42,12 @@ export default function Actogram() {
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
+    // Base left margin depends on label visibility and row-width mode.
+    // Editor gutter is added on top when the overlay editor is active.
+    const labelMargin = !showDateLabels ? 16 : tauHours !== 24 ? 110 : 80;
+    const sideMargin = 16;
+    const leftMargin = editorActive ? labelMargin + EDITOR_GUTTER : labelMargin;
+
     const rendererConfig = useMemo(
         () => ({
             doublePlot,
@@ -50,7 +57,9 @@ export default function Actogram() {
             showSchedule,
             scheduleEntries,
             sortDirection,
-            ...(editorActive ? { leftMargin: 80 + EDITOR_GUTTER } : {}),
+            showDateLabels,
+            leftMargin,
+            rightMargin: sideMargin,
         }),
         [
             doublePlot,
@@ -60,7 +69,9 @@ export default function Actogram() {
             showSchedule,
             scheduleEntries,
             sortDirection,
-            editorActive,
+            showDateLabels,
+            leftMargin,
+            sideMargin,
         ]
     );
 
@@ -70,12 +81,12 @@ export default function Actogram() {
             rowHeight: effectiveRowHeight,
             colorMode,
             tauHours,
-            leftMargin: editorActive ? 80 + EDITOR_GUTTER : 80,
+            leftMargin,
             topMargin: 30,
-            rightMargin: 16,
+            rightMargin: sideMargin,
             bottomMargin: 20,
         }),
-        [doublePlot, effectiveRowHeight, colorMode, tauHours, editorActive]
+        [doublePlot, effectiveRowHeight, colorMode, tauHours, leftMargin, sideMargin]
     );
 
     const editor = useOverlayEditor(
