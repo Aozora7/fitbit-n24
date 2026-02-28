@@ -8,9 +8,10 @@ import type { OverlayControlPoint } from "./models/overlayPath";
 import { AppContext } from "./AppContextDef";
 import type { ScheduleEntry, AppState } from "./AppContextDef";
 import type { ColorMode } from "./components/Actogram/useActogramRenderer";
+import { getMaxCanvasHeightByUserAgent } from "./utils/getMaxCanvasHeightByUserAgent";
 
-/** Max canvas height in pixels (conservative cross-browser limit) */
-const MAX_CANVAS_HEIGHT = 32_768;
+const MAX_CANVAS_HEIGHT = getMaxCanvasHeightByUserAgent();
+
 /** Fixed margins in the actogram renderer (top + bottom) */
 const ACTOGRAM_MARGINS = 50;
 

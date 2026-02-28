@@ -99,9 +99,10 @@ export function useActogramRenderer(
     const newestFirst = cfg.sortDirection !== "oldest";
     const nextDayOffset = newestFirst ? -1 : 1;
     // Adjust left margin based on label visibility and mode
-    if (cfg.showDateLabels === false && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
-        // cfg.leftMargin = 8;
-    } else if (tauMode && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
+    if (cfg.showDateLabels === true && cfg.leftMargin === DEFAULT_CONFIG.leftMargin && !tauMode) {
+        cfg.leftMargin = 70;
+    }
+    if (tauMode && cfg.leftMargin === DEFAULT_CONFIG.leftMargin) {
         // Wider left margin for tau mode labels ("YYYY-MM-DD HH:mm")
         cfg.leftMargin = 110;
     }
@@ -247,7 +248,7 @@ export function useActogramRenderer(
             const month = parseInt(dateStr.slice(5, 7)) - 1; // 0-indexed
             const monthIndex = year * 12 + month;
             if (monthIndex % 2 === 0) {
-                ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+                ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
                 ctx.fillRect(plotLeft, plotTop + i * cfg.rowHeight, plotWidth, cfg.rowHeight);
             }
         }
@@ -598,9 +599,9 @@ export function useActogramRenderer(
         // Date labels
         if (cfg.showDateLabels !== false) {
             ctx.fillStyle = COLORS.text;
-            ctx.font = "10px system-ui, sans-serif";
+            ctx.font = "9px monospace";
             ctx.textAlign = "right";
-            const labelInterval = cfg.rowHeight < 6 ? 7 : 1;
+            const labelInterval = cfg.rowHeight < 8 ? 7 : 1;
             for (let i = 0; i < rows.length; i += labelInterval) {
                 const row = rows[i]!;
                 const y = plotTop + i * cfg.rowHeight + cfg.rowHeight;
