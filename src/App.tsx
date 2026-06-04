@@ -1,4 +1,5 @@
 import { useAppContext } from "./useAppContext";
+import DeprecationAlert from "./components/DeprecationAlert";
 import Header from "./components/Header";
 import DataToolbar from "./components/DataToolbar";
 import VisualizationControls from "./components/VisualizationControls";
@@ -22,6 +23,7 @@ export default function App() {
 
     return (
         <div className="min-h-screen p-4">
+            <DeprecationAlert />
             <Header />
             <DataToolbar />
             <VisualizationControls />

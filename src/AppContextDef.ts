@@ -90,6 +90,10 @@ export interface AppState {
     setOverlaySleepWindow: (v: number) => void;
     manualOverlayDays: OverlayDay[];
 
+    // Deprecation alert
+    deprecationAlertDismissed: boolean;
+    setDeprecationAlertDismissed: (v: boolean) => void;
+
     // Actions
     handleFetch: () => void;
 }

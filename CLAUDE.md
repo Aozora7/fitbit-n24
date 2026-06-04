@@ -49,6 +49,7 @@ ESLint (`eslint.config.js`) and Prettier (`.prettierrc`) are configured. Run `np
 | `src/models/overlayPath.ts`                      | Manual overlay types (`OverlayControlPoint`, `OverlayDay`) + `interpolateOverlay()`   |
 | `src/utils/exportPNG.ts`                         | PNG export: composites actogram + periodogram + header/legend into downloadable image |
 | `src/components/DataToolbar.tsx`                 | Auth buttons, fetch/stop, import/export, PNG save, overlay export (icon+text buttons) |
+| `src/components/DeprecationAlert.tsx`            | Fitbit API deprecation banner (dismissed state persisted via usePersistedState) |
 | `src/components/VisualizationControls.tsx`       | Display toggles, algorithm selector, color mode, row height/width, forecast controls  |
 | `src/components/PhaseChart.tsx`                  | Phase chart: cumulative onset phase from circadian analysis, slope = tau              |
 | `src/components/Actogram/useActogramRenderer.ts` | Canvas rendering engine for the actogram                                              |

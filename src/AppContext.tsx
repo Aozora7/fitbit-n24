@@ -51,6 +51,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     const [overlaySleepWindow, setOverlaySleepWindow] = usePersistedState("viz.overlaySleepWindow", 8);
 
+    const [deprecationAlertDismissed, setDeprecationAlertDismissed] = usePersistedState(
+        "deprecationAlertDismissed",
+        false
+    );
+
     // Auto-fetch after OAuth login (token appears and no data loaded yet)
     const autoFetchedRef = useRef(false);
     useEffect(() => {
@@ -234,6 +239,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setOverlayControlPoints,
             overlaySleepWindow,
             setOverlaySleepWindow,
+            deprecationAlertDismissed,
+            setDeprecationAlertDismissed,
             manualOverlayDays,
             handleFetch,
         }),
@@ -272,6 +279,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             overlayEditMode,
             overlayControlPoints,
             overlaySleepWindow,
+            deprecationAlertDismissed,
             manualOverlayDays,
             handleFetch,
         ]

@@ -70,6 +70,7 @@ src/
     exportPNG.ts                    PNG export: composites header, actogram canvas, optional periodogram canvas, and legend into a single downloadable PNG
 
   components/
+    DeprecationAlert.tsx             Fitbit API deprecation banner (dismissed state persisted via usePersistedState)
     Header.tsx                      App header: record count, circadian stats (tau, drift, shift, avg sleep), privacy modal
     DataToolbar.tsx                  Auth buttons, fetch/stop, import/export, clear cache
     VisualizationControls.tsx        Display toggles (double plot, circadian, periodogram, schedule), algorithm selector, color mode, row height/width, forecast
