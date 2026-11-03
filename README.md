@@ -1,12 +1,15 @@
 # fitbit-n24
 
+> [!IMPORTANT]
+> **This application no longer works.** The Fitbit Web API has been decommissioned. The maintained version, which uses the Google Health API, is [Aozora7/darkhour](https://github.com/Aozora7/darkhour).
+
 https://n24.aozora.one/
 
 ![screenshot](https://github.com/Aozora7/fitbit-n24/raw/master/images/screenshot.png)
 
-A client-side React application that visualizes Fitbit sleep data in a way that's helpful for people with non-24-hour sleep-wake disorder (N24). The main feature is an actogram with sleep stage data, and an overlay that displays estimated circadian night on each day, calculated based on the entire visible data set.
+A client-side React application that visualizes Fitbit sleep data in a way that's helpful for people with non-24-hour sleep-wake disorder (N24). The main feature is an actogram with sleep stage data.
 
-In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/fitbit-sleep-vis) as I've been using it for years, but this project is written completely from scratch due to vastly different objectives and implementation besides fetching.
+In many aspects inspired by [fitbit-sleep-vis](https://github.com/carrotflakes/fitbit-sleep-vis) as I've been using it for years, but this project is written completely from scratch due to vastly different goals.
 
 ## Features
 
